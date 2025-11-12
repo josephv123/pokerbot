@@ -62,3 +62,84 @@ class PokerPlayer:
                 # I lost by call. oppcard contains opponent's card.
                 # TODO: fill in your code here
                 pass
+
+
+# ============================================================================
+# Gen-0: Baseline Agents for Benchmarking
+# ============================================================================
+
+class AllInPlayer:
+    """
+    Baseline Agent B0.1: Bets entire stack every hand.
+    Expected Win Rate: ~30%
+    """
+    def __init__(self):
+        """Initialize my internal variables."""
+        pass
+
+    def start(self, bigblind, card, myscore, oppscore, minbet, pot):
+        """Start a new game of Random Texas."""
+        pass
+
+    def bet(self, card, myscore, oppscore, minbet, pot):
+        """
+        Betting rounds - always bet entire stack.
+        Returns the maximum bet possible (min of both scores).
+        """
+        return min(myscore, oppscore)
+
+    def end(self, iwon, oppcard, myscore, oppscore, minbet, winnings):
+        """The game is over."""
+        pass
+
+
+class FoldBot:
+    """
+    Baseline Agent B0.2: Always folds unless Big Blind with card > 0.9.
+    Expected Win Rate: ~10%
+    """
+    def __init__(self):
+        """Initialize my internal variables."""
+        self.is_big_blind = False
+
+    def start(self, bigblind, card, myscore, oppscore, minbet, pot):
+        """Start a new game of Random Texas."""
+        self.is_big_blind = bigblind
+
+    def bet(self, card, myscore, oppscore, minbet, pot):
+        """
+        Betting rounds - fold unless Big Blind with very strong card.
+        """
+        # Only call if we're Big Blind and have a very strong card (>0.9)
+        if self.is_big_blind and card > 0.9:
+            return pot  # Call
+        else:
+            return 0  # Fold
+
+    def end(self, iwon, oppcard, myscore, oppscore, minbet, winnings):
+        """The game is over."""
+        pass
+
+
+class CallBot:
+    """
+    Baseline Agent B0.3: Always calls, never raises.
+    Expected Win Rate: ~45-50%
+    """
+    def __init__(self):
+        """Initialize my internal variables."""
+        pass
+
+    def start(self, bigblind, card, myscore, oppscore, minbet, pot):
+        """Start a new game of Random Texas."""
+        pass
+
+    def bet(self, card, myscore, oppscore, minbet, pot):
+        """
+        Betting rounds - always call, never raise.
+        """
+        return pot  # Always call
+
+    def end(self, iwon, oppcard, myscore, oppscore, minbet, winnings):
+        """The game is over."""
+        pass

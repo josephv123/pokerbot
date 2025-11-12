@@ -50,10 +50,29 @@ This module implements the foundational logic required for all rational agents.
 
 These simple, non-learning agents establish the performance floor and are used for testing.
 
-- **B0.1: AllInPlayer:** Bets entire stack every hand. (Expected Win Rate: \~30%)
-- **B0.2: FoldBot:** Always folds unless Big Blind with card \> 0.9. (Expected Win Rate: \~10%)
-- **B0.3: CallBot:** Always calls, never raises. (Expected Win Rate: \~45-50%)
-- **B0.4: John1:** A known baseline using simple card-strength and pot-size thresholds. (Expected Win Rate: \~59%)
+- **B0.1: AllInPlayer:** Bets entire stack every hand. 
+  - **Expected Win Rate:** ~30%
+  - **Actual Win Rate:** 30.4% (200 games vs all training opponents)
+  - **Status:** ✅ Implemented and tested
+  - **Notes:** Matches expected performance. Very fast (~3.5 seconds for full test).
+
+- **B0.2: FoldBot:** Always folds unless Big Blind with card > 0.9.
+  - **Expected Win Rate:** ~10%
+  - **Actual Win Rate:** 0.2% (200 games vs training opponents, excluding P123 due to opponent bug)
+  - **Status:** ✅ Implemented and tested
+  - **Notes:** Much worse than expected. Strategy is too passive and exploitable. Only calls with very strong hands (>0.9) when Big Blind.
+
+- **B0.3: CallBot:** Always calls, never raises.
+  - **Expected Win Rate:** ~45-50%
+  - **Actual Win Rate:** 7.7% (200 games vs all training opponents)
+  - **Status:** ✅ Implemented and tested
+  - **Notes:** Much worse than expected. Always calling is highly exploitable by opponents who can value bet and bluff effectively.
+
+- **B0.4: John1:** A known baseline using simple card-strength and pot-size thresholds.
+  - **Expected Win Rate:** ~59%
+  - **Actual Win Rate:** 48.8% (200 games vs all training opponents)
+  - **Status:** ✅ Tested (existing implementation)
+  - **Notes:** Lower than expected, suggesting training opponents are stronger than anticipated. Still the best baseline agent.
 
 ---
 

@@ -8,14 +8,41 @@ This is a Python-based assignment to create an AI player for a simplified poker 
 
 ## Implementation Progress Tracking
 
-**`researchProgress.md`** - Comprehensive implementation roadmap and progress tracker:
+**`researchProgress.md`** - Comprehensive implementation roadmap and progress tracker
 
-- Contains a Directed Acyclic Graph (DAG) structure for building poker bots incrementally
-- Defines 5 levels of bot complexity: Baselines (L0), Foundation (L1), GTO Core (L2), Opponent Modeling (L3), Adaptive/Exploitative (L4), and Elite Integration (L5)
-- Each level builds on previous levels with specific players to implement
-- Includes mathematical foundations, strategy details, testing protocols, and expected win rates
+This file contains the complete "Ultimate Implementation Plan" structured as a Directed Acyclic Graph (DAG) of AI agents, organized into evolutionary "Phylums":
 
-**Usage Guidelines:**
+### Roadmap Structure
+
+**Gen-0: Foundational Infrastructure**
+
+- Core game mechanics and mathematical principles (pot odds, EV calculations, Kelly Criterion)
+- Baseline agents for benchmarking (AllInPlayer, FoldBot, CallBot, John1)
+
+**Phylum A: GTO Lineage (Balanced Strategies)**
+
+- A1: SimpleThreshold Player - Basic threshold strategy
+- A2: PositionAware Player - Exploits positional advantage
+- A3: MixedStrategy Player - Adds randomization and GTO bluffing
+- A4: OptimalThreshold Player - Full GTO approximation (target: 66-69% win rate)
+
+**Phylum B: Exploitative Lineage (Opponent Modeling)**
+
+- B1: StatisticalTracker - Collects opponent statistics (VPIP, PFR, aggression)
+- B2: Bayesian Opponent Classifier - Classifies opponents into archetypes
+- B3: ExploitationEngine - Counter-strategies for each opponent type
+
+**Phylum C: Advanced & Game-Specific Strategies**
+
+- C1: Kelly-Based Bet Sizing - Optimal bet sizing using known win probability
+- C2: ICM & Score-Aware Meta-Strategy - Risk management based on score differential
+
+**Phylum D: Ultimate Hybrid Player**
+
+- D1: AdaptiveHybrid Player - Integrates GTO baseline with exploitative overlays
+- D2: Multi-Armed Bandit - Advanced strategy selection (target: 75%+ win rate)
+
+### Usage Guidelines
 
 - **Always consult this file** before implementing new features to understand the current phase
 - **Update this file immediately** after implementing any new player or strategy with:
@@ -26,6 +53,7 @@ This is a Python-based assignment to create an AI player for a simplified poker 
 - Track the progression through the DAG by marking completed items
 - Use this file to maintain context across development sessions
 - Reference specific sections when debugging or optimizing strategies
+- Commit changes frequently with clear messages that reference the relevant section of this file (e.g., "Implemented A1: SimpleThreshold Player - 55% win rate against training opponents")
 
 This file serves as the single source of truth for the implementation plan and progress.
 
