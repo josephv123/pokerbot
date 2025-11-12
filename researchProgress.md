@@ -89,6 +89,11 @@ These simple, non-learning agents establish the performance floor and are used f
   - Call if 0.3 \<= card \< 0.7
   - Raise if card \>= 0.7
 - **Weakness:** Highly predictable and exploitable.
+- **Status:** ✅ Implemented
+- **Test Results:**
+  - Against John1: 59% win rate (100 games)
+  - Against training opponents (first 5): 27.6% win rate (200 games each)
+- **Observations:** Performs well against John1 baseline but struggles against stronger training opponents. Simple strategy is functional but needs improvement.
 
 ### A2. PositionAware Player
 
@@ -97,6 +102,10 @@ These simple, non-learning agents establish the performance floor and are used f
 - **Strategy:** Adjust thresholds based on position.
   - **Small Blind (tighter):** Fold \< 0.35, Call 0.35-0.75, Raise \> 0.75
   - **Big Blind (wider/defensive):** Fold \< 0.25, Call 0.25-0.70, Raise \> 0.70
+- **Status:** ✅ Implemented
+- **Test Results:**
+  - Against training opponents (first 5): 27.2% win rate (200 games each)
+- **Observations:** Position awareness did not improve performance over SimpleThreshold. May need threshold tuning or the training opponents are exploiting the predictable position-based adjustments.
 
 ### A3. MixedStrategy Player
 
@@ -108,6 +117,10 @@ These simple, non-learning agents establish the performance floor and are used f
 
   - **Polarize Ranges:** Only raise with very strong hands (value) or a select few weak hands (bluffs). Call/Fold with medium-strength hands.
   - **Implement GTO Bluffing:** Use the optimal bluffing frequency from the Gen-0 Lexicon.
+- **Status:** ✅ Implemented
+- **Test Results:**
+  - Against training opponents (first 5): 29.6% win rate (200 games each)
+- **Observations:** Slight improvement over A1/A2, but still underperforming. Randomization and bluffing help but thresholds may need adjustment.
 
 - **Implementation Logic:**
 
@@ -140,6 +153,11 @@ These simple, non-learning agents establish the performance floor and are used f
 - **Core Concept:** A full GTO approximation using mathematically derived thresholds. This is the "final boss" of the GTO lineage and serves as the baseline strategy for the Ultimate Hybrid.
 
 - **Strategy:** Use a refined, balanced set of thresholds derived from Kuhn poker theory.
+- **Status:** ✅ Implemented
+- **Test Results:**
+  - Against John1: 42% win rate (100 games)
+  - Against training opponents (first 5): 33.4% win rate (200 games each)
+- **Observations:** Best performing Phylum A player but still below target (66-69%). Current thresholds (BLUFF=0.18, FOLD=0.35, VALUE=0.72) may be too tight. Bet sizing based on card strength may be too aggressive. Need to investigate threshold tuning and consider that training opponents may be significantly stronger than expected.
 
 - **Implementation Logic:**
 
