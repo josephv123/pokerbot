@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python-based assignment for Psychology 213 (Human Information Processing and AI) focused on creating an AI player for a simplified poker game called "Random Number Texas Hold'Em". Students must implement a competitive poker bot that plays against 90+ opponent bots created by past students.
+This is a Python-based assignment to create an AI player for a simplified poker game called "Random Number Texas Hold'Em".
 
 ## Implementation Progress Tracking
 
@@ -44,9 +44,6 @@ This file serves as the single source of truth for the implementation plan and p
 ### Running Tests
 
 ```bash
-# Run from Assignment3_Class directory
-cd Assignment3_Class
-
 # Test your player against training opponents (200 games per opponent)
 python3 -c "from opponents import training_opponents; from pokerplayer import PokerPlayer; from randomTexas import play; play(PokerPlayer, training_opponents, 200, 0)"
 
