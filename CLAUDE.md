@@ -275,3 +275,5 @@ Within a single game (all hands against one opponent), you can track:
 Grading is based on performance against 89 held-out even-numbered opponents (P002-P178).
 
 **Important**: Only modify `pokerplayer.py` - do not change other files.
+
+- When testing an implementation, do not test it on a small subset of the training set. Since the training set has high variance, test it on all of the possible opponents
