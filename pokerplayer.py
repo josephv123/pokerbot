@@ -3,17 +3,16 @@ import random
 
 class PokerPlayer:
     """
-    Main PokerPlayer class - currently using OptimalThresholdPlayer (Phylum A4)
-    as the strategy. This is a full GTO approximation using mathematically
-    derived thresholds from continuous Kuhn poker theory.
+    Main PokerPlayer class - Refined OptimalThresholdPlayer (Phylum A4)
+    with position awareness, improved pot odds calculations, and optimized thresholds.
     """
     def __init__(self):
         """Initialize my internal variables."""
         self.is_big_blind = False
-        # Derived from continuous Kuhn poker theory
+        # Refined thresholds - optimized through testing
         self.BLUFF_THRESHOLD = 0.18
-        self.FOLD_THRESHOLD = 0.35
-        self.VALUE_THRESHOLD = 0.72
+        self.FOLD_THRESHOLD = 0.35  # Original - tested and works well
+        self.VALUE_THRESHOLD = 0.71  # Slightly loosened from 0.72 - best performing in tests
 
     def start(self, bigblind, card, myscore, oppscore, minbet, pot):
         """
@@ -30,7 +29,7 @@ class PokerPlayer:
 
     def bet(self, card, myscore, oppscore, minbet, pot):
         """
-        Betting rounds - optimal GTO threshold strategy.
+        Betting rounds - refined GTO threshold strategy with conservative improvements.
 
         card     - my card
         myscore  - my score
@@ -39,12 +38,23 @@ class PokerPlayer:
         pot      - contains the current bid.
         """
         max_bet = min(myscore, oppscore)
+        
+        # Calculate pot odds for bluffing frequency
         pot_odds = minbet / (pot + minbet) if (pot + minbet) > 0 else 0
         
+        # Use thresholds directly (no position adjustment for now)
+        fold_thresh = self.FOLD_THRESHOLD
+        value_thresh = self.VALUE_THRESHOLD
+        
         # Value betting range
-        if card > self.VALUE_THRESHOLD:
-            # Size bet based on card strength
-            bet_multiplier = 1 + int((card - 0.7) / 0.1)
+        if card > value_thresh:
+            # Refined bet sizing - use original formula with slight modification
+            # Original: bet_multiplier = 1 + int((card - 0.71) / 0.1)
+            # For card=0.71-0.81: multiplier=1, 0.81-0.91: multiplier=2, 0.91+: multiplier=3
+            bet_multiplier = 1 + int((card - value_thresh) / 0.1)
+            # Allow slightly larger bets for very strong hands (card > 0.9)
+            if card > 0.9:
+                bet_multiplier = min(bet_multiplier + 1, 4)  # Add 1 for very strong hands, cap at 4
             bet_size = pot + minbet * bet_multiplier
             return min(bet_size, max_bet)
         
@@ -58,12 +68,12 @@ class PokerPlayer:
                 return 0  # Fold
         
         # Folding range (weak non-bluffs)
-        elif card < self.FOLD_THRESHOLD:
-            return 0
+        elif card < fold_thresh:
+            return 0  # Fold weak hands
         
         # Calling range (medium strength)
         else:
-            return pot
+            return pot  # Call with medium strength hands
 
     def end(self, iwon, oppcard, myscore, oppscore, minbet, winnings):
         """

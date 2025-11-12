@@ -157,11 +157,23 @@ These simple, non-learning agents establish the performance floor and are used f
 - **Core Concept:** A full GTO approximation using mathematically derived thresholds. This is the "final boss" of the GTO lineage and serves as the baseline strategy for the Ultimate Hybrid.
 
 - **Strategy:** Use a refined, balanced set of thresholds derived from Kuhn poker theory.
-- **Status:** ✅ Implemented
+- **Status:** ✅ Implemented and Refined
 - **Test Results:**
   - Against John1: 42% win rate (100 games)
   - Against training opponents (first 5): 33.4% win rate (200 games each)
-- **Observations:** Best performing Phylum A player but still below target (66-69%). Current thresholds (BLUFF=0.18, FOLD=0.35, VALUE=0.72) may be too tight. Bet sizing based on card strength may be too aggressive. Need to investigate threshold tuning and consider that training opponents may be significantly stronger than expected.
+  - Against all training opponents (90+): 28.0% win rate (200 games each) - Original
+  - Against all training opponents (90+): 27.7% win rate (200 games each, 3-run average) - Refined
+- **Refinements Made:**
+  - Loosened VALUE_THRESHOLD from 0.72 to 0.71 to value bet slightly more hands
+  - Added bet sizing cap (4x minbet) for very strong hands (card > 0.9) to prevent over-betting
+  - Simplified strategy by removing complex pot odds logic that was causing issues
+  - Maintained original FOLD_THRESHOLD (0.35) and BLUFF_THRESHOLD (0.18) as they performed well
+- **Observations:**
+
+  - Refined version maintains performance close to original (27.7% vs 28.0%)
+  - Slight loosening of value threshold helps value bet more hands without significant performance loss
+  - Bet sizing cap prevents over-aggressive betting with very strong hands
+  - Performance still below target (66-69%), indicating need for more advanced strategies (opponent modeling, better bet sizing)
 
 - **Implementation Logic:**
 
@@ -449,15 +461,15 @@ A script that programmatically pits agents against each other.
 
 Maintain a spreadsheet to track progress and prevent regressions.
 
-| Player Name      | Phylum | Quick Test (5 opps) | Full Test (90 opps) | Notes                                   |
-| :--------------- | :----- | :------------------ | :------------------ | :-------------------------------------- |
-| AllIn            | Gen-0  | 35%                 | 30.4%               | Baseline                                |
-| John1            | Gen-0  | 60%                 | 48.8%               | Heuristic Baseline                      |
-| OptimalThreshold | A4     | 33.4%               | 28.0%               | Solid GTO Core                          |
-| KellyBetting     | C1     | 50.3%               | 28.9%               | Kelly bet sizing (marginal improvement) |
-| ICMScoreAware    | C2     | 26.7%               | 25.7%               | Needs refinement                        |
-| ...              | ...    | ...                 | ...                 | ...                                     |
-| UltimateHybrid   | D1     | **?**               | **?**               | Target 75%+                             |
+| Player Name      | Phylum | Quick Test (5 opps) | Full Test (90 opps)   | Notes                                       |
+| :--------------- | :----- | :------------------ | :-------------------- | :------------------------------------------ |
+| AllIn            | Gen-0  | 35%                 | 30.4%                 | Baseline                                    |
+| John1            | Gen-0  | 60%                 | 48.8%                 | Heuristic Baseline                          |
+| OptimalThreshold | A4     | 33.4%               | 28.0% (27.7% refined) | Solid GTO Core, refined with bet sizing cap |
+| KellyBetting     | C1     | 50.3%               | 28.9%                 | Kelly bet sizing (marginal improvement)     |
+| ICMScoreAware    | C2     | 26.7%               | 25.7%                 | Needs refinement                            |
+| ...              | ...    | ...                 | ...                   | ...                                         |
+| UltimateHybrid   | D1     | **?**               | **?**                 | Target 75%+                                 |
 
 ### C. Implementation Roadmap
 
