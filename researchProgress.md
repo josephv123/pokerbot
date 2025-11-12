@@ -50,19 +50,22 @@ This module implements the foundational logic required for all rational agents.
 
 These simple, non-learning agents establish the performance floor and are used for testing.
 
-- **B0.1: AllInPlayer:** Bets entire stack every hand. 
+- **B0.1: AllInPlayer:** Bets entire stack every hand.
+
   - **Expected Win Rate:** ~30%
   - **Actual Win Rate:** 30.4% (200 games vs all training opponents)
   - **Status:** ✅ Implemented and tested
   - **Notes:** Matches expected performance. Very fast (~3.5 seconds for full test).
 
 - **B0.2: FoldBot:** Always folds unless Big Blind with card > 0.9.
+
   - **Expected Win Rate:** ~10%
   - **Actual Win Rate:** 0.2% (200 games vs training opponents, excluding P123 due to opponent bug)
   - **Status:** ✅ Implemented and tested
   - **Notes:** Much worse than expected. Strategy is too passive and exploitable. Only calls with very strong hands (>0.9) when Big Blind.
 
 - **B0.3: CallBot:** Always calls, never raises.
+
   - **Expected Win Rate:** ~45-50%
   - **Actual Win Rate:** 7.7% (200 games vs all training opponents)
   - **Status:** ✅ Implemented and tested
@@ -117,6 +120,7 @@ These simple, non-learning agents establish the performance floor and are used f
 
   - **Polarize Ranges:** Only raise with very strong hands (value) or a select few weak hands (bluffs). Call/Fold with medium-strength hands.
   - **Implement GTO Bluffing:** Use the optimal bluffing frequency from the Gen-0 Lexicon.
+
 - **Status:** ✅ Implemented
 - **Test Results:**
   - Against training opponents (first 5): 29.6% win rate (200 games each)
@@ -304,21 +308,42 @@ These simple, non-learning agents establish the performance floor and are used f
   - **Problem:** Full Kelly has extremely high variance and can lead to ruin.
   - **Solution: Fractional Kelly:** Use a fraction (e.g., 0.25x to 0.5x) of the Kelly bet. This retains most of the growth rate while dramatically reducing variance.
 
+- **Status:** ✅ Implemented and tested
+- **Test Results:**
+  - Against training opponents (first 5): 50.3% win rate (200 games each)
+  - Individual results: P001: 40%, P003: 50%, P005: 94%, P007: 39%, P009: 28%
+  - Against all training opponents (90+): 28.9% win rate (200 games each)
+- **Observations:**
+  - Kelly player shows slight improvement over OptimalThreshold (28.0% → 28.9%) when tested against all opponents
+  - Strong performance against first 5 opponents (50.3%) suggests Kelly sizing is effective against certain opponent types
+  - Performance drops significantly against full opponent set, indicating some opponents exploit the Kelly strategy
+  - Kelly bet sizing provides marginal improvement but needs opponent-specific adjustments for better results
+- **Implementation Details:**
+
+  - Uses fractional Kelly (0.4x multiplier) to reduce variance
+  - Combines Kelly bet sizing with GTO threshold framework
+  - For value hands (card > 0.72), uses Kelly to size bets optimally
+  - For medium hands (card > 0.5), uses Kelly if positive EV, otherwise calls with good pot odds
+  - Respects minbet multiples and max_bet constraints
+  - Maintains GTO bluffing frequency for bluffs
+
 - **Implementation Logic:**
 
   ```python
-  def fractional_kelly(card_value, stack, kelly_multiplier=0.4):
+  def fractional_kelly(card_value, myscore, minbet, pot):
       # Kelly formula for even-money bets: f* = 2p - 1
       kelly_fraction = 2 * card_value - 1
 
       if kelly_fraction <= 0:
-          return 0  # Fold or check
+          return None  # Negative EV
 
       # Use 0.4x Kelly for reduced variance
-      conservative_fraction = kelly_fraction * kelly_multiplier
-      optimal_bet = conservative_fraction * stack
+      conservative_fraction = kelly_fraction * 0.4
+      optimal_risk = conservative_fraction * myscore
 
-      return min(optimal_bet, stack)
+      # Round to minbet multiple and return total pot amount
+      optimal_risk = int(optimal_risk / minbet) * minbet
+      return pot + optimal_risk
   ```
 
 ### C2. ICM & Score-Aware Meta-Strategy
@@ -326,6 +351,7 @@ These simple, non-learning agents establish the performance floor and are used f
 - **Dependencies:** Gen-0
 - **Core Concept:** The game is a "winner-take-all" tournament. Chips have non-linear value. The agent's strategy must change based on the score and the blind level.
 - **Strategy:**
+
   - **Score-Differential Awareness (ICM):**
     - **When Leading (e.g., 150 vs 50):** Play **risk-averse**. Avoid high-variance, all-in situations unless you are a huge favorite. Protect your lead.
     - **When Trailing (e.g., 50 vs 150):** Play **risk-seeking**. Increase variance. You must take risks (e.g., bluff more, call lighter) to catch up.
@@ -334,6 +360,29 @@ These simple, non-learning agents establish the performance floor and are used f
     - As the `minbet` doubles, the M-Ratio drops.
     - **High M (Early Game):** Play deep-stacked, nuanced poker.
     - **Low M (Late Game):** Shift to a simpler, more aggressive "push/fold" strategy, as the blinds are too large to play small pots.
+
+- **Status:** ✅ Implemented and tested
+- **Test Results:**
+  - Against training opponents (first 5): 26.7% win rate (200 games each)
+  - Individual results: P001: 25%, P003: 27%, P005: 17%, P007: 23%, P009: 40%
+  - Against all training opponents (90+): 25.7% win rate (200 games each)
+- **Observations:**
+  - ICM player underperformed compared to baseline OptimalThreshold (28.0% → 25.7%)
+  - The dynamic threshold adjustments may be too aggressive or the thresholds need tuning
+  - The push/fold strategy for low M-ratio may be triggering too early or too often
+  - Score differential adjustments may be causing over-adjustment, making the strategy exploitable
+  - Need to refine ICM adjustments with more conservative thresholds and possibly combine with Kelly sizing
+- **Implementation Details:**
+  - Calculates score differential as (myscore - oppscore) / total
+  - Adjusts thresholds dynamically:
+    - Leading (>10% advantage): Tighter (bluff 0.15, fold 0.40, value 0.75), smaller bets
+    - Trailing (>10% behind): Looser (bluff 0.25, fold 0.30, value 0.68), larger bets
+  - Calculates M-ratio: stack / (SB + BB)
+  - Low M (<5): Push/fold strategy (all-in with card > 0.65, fold with card < 0.25)
+  - Medium M (5-15): Slightly more aggressive
+  - High M (>15): Normal nuanced poker
+  - Adjusts bluff frequency: trailing players bluff 1.5x more, leading players bluff 0.5x less
+  - Adjusts calling thresholds: trailing players call 20% lighter, leading players call 20% tighter
 
 ---
 
@@ -400,15 +449,15 @@ A script that programmatically pits agents against each other.
 
 Maintain a spreadsheet to track progress and prevent regressions.
 
-| Player Name      | Phylum | Quick Test (5 opps) | Full Test (90 opps) | Notes                   |
-| :--------------- | :----- | :------------------ | :------------------ | :---------------------- |
-| AllIn            | Gen-0  | 35%                 | 30%                 | Baseline                |
-| John1            | Gen-0  | 60%                 | 59%                 | Heuristic Baseline      |
-| PositionAware    | A2     | 62%                 | 60%                 | GTO base                |
-| OptimalThreshold | A4     | 68%                 | 66-69%              | Solid GTO Core          |
-| ...              | ...    | ...                 | ...                 | ...                     |
-| KellyPlayer      | C1     | 70%                 | 71%                 | Kelly bet sizing is key |
-| UltimateHybrid   | D1     | **?**               | **?**               | Target 75%+             |
+| Player Name      | Phylum | Quick Test (5 opps) | Full Test (90 opps) | Notes                                   |
+| :--------------- | :----- | :------------------ | :------------------ | :-------------------------------------- |
+| AllIn            | Gen-0  | 35%                 | 30.4%               | Baseline                                |
+| John1            | Gen-0  | 60%                 | 48.8%               | Heuristic Baseline                      |
+| OptimalThreshold | A4     | 33.4%               | 28.0%               | Solid GTO Core                          |
+| KellyBetting     | C1     | 50.3%               | 28.9%               | Kelly bet sizing (marginal improvement) |
+| ICMScoreAware    | C2     | 26.7%               | 25.7%               | Needs refinement                        |
+| ...              | ...    | ...                 | ...                 | ...                                     |
+| UltimateHybrid   | D1     | **?**               | **?**               | Target 75%+                             |
 
 ### C. Implementation Roadmap
 
