@@ -62,9 +62,20 @@ class PokerPlayer:
         if b > c:
             # Standard interpretation: check range is a to c, with b as call boundary
             # Set b to midpoint of check range for call/fold decision
+            # b = (a + c) / 2
+            # Correct derivation for Pot Limit (B=P):
+            # P1 should call with (B/P) / (1 + B/P) fraction of check range?
+            # No, P2 needs to be indifferent.
+            # P1 call freq C, fold freq F. F/C = B/P.
+            # C = (1 / (1+B/P)) * TotalCheckRange
+            # If B=P, C = 1/2 TotalCheckRange.
+            # So b should be midpoint.
             b = (a + c) / 2
         
+        # print(f"DEBUG: Thresholds: a={a:.2f} b={b:.2f} c={c:.2f} d={d:.2f} e={e:.2f} f={f:.2f}")
+        
         # P2 thresholds
+        # When facing bet: MDF (Minimum Defense Frequency)
         # When facing bet: MDF (Minimum Defense Frequency)
         d = B / (B + 2)  # Call threshold (for B=2, d=0.5)
         
@@ -113,6 +124,7 @@ class PokerPlayer:
         minbet   - the smallest bet increase that I am allowed make
         pot      - contains the current bid.
         """
+        # print(f"DEBUG: Role={self.role} Card={card:.2f} Pot={pot} MyScore={myscore} OppScore={oppscore}")
         self.hand_strength = card
         self.myscore = myscore
         self.oppscore = oppscore
@@ -120,7 +132,25 @@ class PokerPlayer:
         self.pot = pot
         
         # Calculate GTO thresholds
-        a, b, c, d, e, f = self._calculate_gto_thresholds()
+        # Determine bet size ratio B/P
+        # If pot is small (opening), B/P is irrelevant (we use B=P for our bets)
+        # If facing a bet, we need to know what B/P the opponent used.
+        
+        bet_size_ratio = 1.0 # Default
+        if pot > self.initial_bb_pot + self.epsilon:
+            # Opponent bet something
+            # Assuming base pot was initial_bb_pot (2*minbet)
+            bet_amount = pot - self.initial_bb_pot
+            # Base pot P = initial_bb_pot
+            # But wait, if we bet and they raised?
+            # Simplified game usually has 1 bet then call/fold.
+            # So we can assume base pot is initial_bb_pot.
+            if self.initial_bb_pot > 0:
+                 bet_size_ratio = bet_amount / self.initial_bb_pot
+            else:
+                 bet_size_ratio = 1.0
+        
+        a, b, c, d, e, f = self._calculate_gto_thresholds(bet_size_ratio)
         
         max_bet = min(myscore, oppscore)
         
@@ -130,8 +160,9 @@ class PokerPlayer:
         
         if self.role == 'SB':
             # Small Blind acts first
-            # When SB acts first, pot should be 2*minbet (both blinds are in)
-            if pot_equals(pot, self.initial_bb_pot):
+            # When SB acts first, pot is usually 2*minbet (betPot in game engine)
+            # But better to rely on history: if we haven't acted yet, it's opening
+            if self.last_action is None:
                 # Opening action: can call (2*minbet) or raise
                 if self.hand_strength < a:
                     # Bluff: raise with pot-sized bet
@@ -152,6 +183,7 @@ class PokerPlayer:
                 else:
                     # Check (call): return 2*minbet to call BB
                     self.last_action = 'check'
+                    # print(f"DEBUG: SB Check-Call. Return {self.initial_bb_pot}")
                     return self.initial_bb_pot
             else:
                 # Pot has increased - either we bet and opponent raised, or we checked and opponent bet
@@ -160,9 +192,11 @@ class PokerPlayer:
                     # Decision: call or fold based on check-call threshold (b)
                     if self.hand_strength >= b:
                         # Check-call: call the bet
+                        # print(f"DEBUG: SB Check-Call (Defend). Return {pot}")
                         return pot
                     else:
                         # Check-fold: fold
+                        # print(f"DEBUG: SB Check-Fold. Return 0")
                         return 0  # Return less than pot to fold
                 else:
                     # We bet and opponent raised - this shouldn't happen in simplified game
@@ -174,6 +208,9 @@ class PokerPlayer:
                     
         else:  # self.role == 'BB'
             # Big Blind acts second
+            # We are facing SB's action.
+            # If SB checked, pot is 2*minbet (initial_bb_pot).
+            # If SB bet, pot > 2*minbet.
             if pot_equals(pot, self.initial_bb_pot):
                 # SB called (checked), we can check back or bet
                 if self.hand_strength < e:
