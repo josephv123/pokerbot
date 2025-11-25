@@ -5,4 +5,7 @@ opponents/*
 *.so
 *.dll
 *.dylib
+# Large data files
+*.csv
+Assignment3_Class/rf_model_code.py
 *.pyd
