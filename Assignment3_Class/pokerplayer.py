@@ -46,6 +46,20 @@ class PokerPlayer:
         self.caller_threshold = 0.30     # <30% fold rate = caller
         self.aggressor_raise_threshold = 0.30  # >30% raise rate = aggressor
         
+        # Adaptation detection (from plan)
+        self.recent_fold_decisions = []  # Last 20: 1=fold, 0=not fold
+        self.early_fold_rate = None      # Stored after first 30 hands
+        self.adaptation_window = 20
+        self.drift_threshold = 0.20  # Increased threshold to be more conservative
+        
+        # Showdown statistics for better opponent modeling
+        self.opp_bet_card_sum = 0.0     # Sum of opponent cards when they bet
+        self.opp_bet_card_count = 0     # Count of showdowns where opponent bet
+        
+        # Aggression tracking (bets when checked to)
+        self.we_checked_to_opp = 0      # Times we checked to opponent
+        self.opp_bet_when_checked = 0   # Times opponent bet when we checked
+        
         # Step 6.1: Rolling window for recent performance
         self.recent_results = []  # Last N hands: (won: bool, profit: int)
         self.rolling_window_size = 20
@@ -107,6 +121,7 @@ class PokerPlayer:
         self.opp_bet_this_hand = False
         self.opp_raised_this_hand = False
         self.we_bet_this_hand = False
+        self.we_checked_this_hand = False  # Track if we checked to opponent
         
         # Phase A: Track our bet details this hand
         self.our_bet_was_bluff = False  # True if we bet with card < 0.35
@@ -145,6 +160,11 @@ class PokerPlayer:
         call_rate = self.our_bet_gets_call / self.our_bet_count
         raise_rate = self.our_bet_gets_raise / self.our_bet_count
         
+        # Calculate aggression (bets when checked to)
+        aggression = 0.0
+        if self.we_checked_to_opp >= 5:
+            aggression = self.opp_bet_when_checked / self.we_checked_to_opp
+        
         # Classify opponent
         if raise_rate >= self.aggressor_raise_threshold:
             return 'aggressor'
@@ -182,6 +202,13 @@ class PokerPlayer:
         
         self.opp_type = opp_type
         
+        # Check for adaptation - if opponent is changing, use balanced mode
+        # Only apply after we've established a baseline
+        if self._check_for_adaptation() and self.strategy_mode != 'tight':
+            # Don't override tight mode (for callers/allin) but do override aggressive
+            self.strategy_mode = 'balanced'
+            return
+        
         # Map opponent type to strategy mode
         if opp_type == 'folder':
             self.strategy_mode = 'aggressive'
@@ -191,6 +218,21 @@ class PokerPlayer:
             self.strategy_mode = 'trapping'
         else:  # balanced
             self.strategy_mode = 'balanced'
+    
+    def _check_for_adaptation(self):
+        """Detect if opponent is changing strategy mid-match."""
+        if len(self.recent_fold_decisions) < self.adaptation_window or self.early_fold_rate is None:
+            return False
+        
+        recent_rate = sum(self.recent_fold_decisions[-self.adaptation_window:]) / self.adaptation_window
+        drift = abs(recent_rate - self.early_fold_rate)
+        
+        return drift > self.drift_threshold  # Significant behavioral shift detected
+    
+    def _store_early_baseline(self):
+        """Store baseline behavior after first 30 hands for drift detection."""
+        if self.hands_played == 30 and self.our_bet_count >= 8:
+            self.early_fold_rate = self.our_bet_gets_fold / self.our_bet_count
     
     def _calculate_gto_thresholds(self, bet_size_ratio=1.0):
         """
@@ -303,14 +345,26 @@ class PokerPlayer:
     
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
-        Minimal exploitation: Only AllIn detection.
-        All exploitation attempts hurt overall performance.
+        Selective exploitation based on opponent patterns.
         """
-        # AllIn detection only
+        # AllIn detection
         if self.opp_bet_count >= 5:
             allin_freq = self.opp_allin_count / self.opp_bet_count
             if allin_freq > 0.70:
                 return (0, 0.5, 1.0, 0.5, 0, 1.0)
+        
+        # Adjust calling threshold based on opponent's betting range
+        # If opponent bets with weak hands (low bet_card_mean), call more
+        if self.opp_bet_card_count >= 10:
+            bet_card_mean = self.opp_bet_card_sum / self.opp_bet_card_count
+            if bet_card_mean < 0.55:
+                # Opponent bets with weak hands - widen calling range
+                d = d * 0.90  # Call 10% more as BB
+                b = b * 0.90  # Call 10% more as SB
+            elif bet_card_mean > 0.75:
+                # Opponent only bets strong hands - tighten calling range
+                d = d * 1.10  # Call 10% less as BB
+                b = b * 1.10  # Call 10% less as SB
         
         return (a, b, c, d, e, f)
     
@@ -393,6 +447,8 @@ class PokerPlayer:
             else:
                 # Check (call): match the big blind
                 self.last_action = 'check'
+                self.we_checked_this_hand = True
+                self.we_checked_to_opp += 1  # Track for aggression metric
                 self.my_contribution = self.initial_bb_pot
                 return self.initial_bb_pot
         else:
@@ -402,6 +458,7 @@ class PokerPlayer:
             if self.last_action == 'check':
                 # Facing a bet from BB after we checked
                 self.opp_bet_this_hand = True
+                self.opp_bet_when_checked += 1  # Track for aggression metric
                 # Decision: call or fold based on check-call threshold (b)
                 if self.hand_strength >= b:
                     self.my_contribution = pot
@@ -505,6 +562,10 @@ class PokerPlayer:
                 if self.we_bet_this_hand:
                     self.our_bet_count += 1
                     self.our_bet_gets_fold += 1
+                    # Track in rolling window for adaptation detection
+                    self.recent_fold_decisions.append(1)
+                    if len(self.recent_fold_decisions) > self.adaptation_window * 2:
+                        self.recent_fold_decisions.pop(0)
                     # Track bluff profitability
                     if self.our_bet_was_bluff:
                         self.bluff_attempts += 1
@@ -525,12 +586,20 @@ class PokerPlayer:
                 if self.we_bet_this_hand:
                     self.our_bet_count += 1
                     self.our_bet_gets_raise += 1
+                    # Track in rolling window for adaptation detection (didn't fold)
+                    self.recent_fold_decisions.append(0)
+                    if len(self.recent_fold_decisions) > self.adaptation_window * 2:
+                        self.recent_fold_decisions.pop(0)
             elif self.we_bet_this_hand:
                 # They called our bet
                 self.opp_call_count += 1
                 # Phase A: Track response to our bet
                 self.our_bet_count += 1
                 self.our_bet_gets_call += 1
+                # Track in rolling window for adaptation detection (didn't fold)
+                self.recent_fold_decisions.append(0)
+                if len(self.recent_fold_decisions) > self.adaptation_window * 2:
+                    self.recent_fold_decisions.pop(0)
                 # Track bluff profitability (we lost at showdown with bluff)
                 if self.our_bet_was_bluff:
                     self.bluff_attempts += 1
@@ -548,6 +617,9 @@ class PokerPlayer:
             # Phase B: Track showdown cards by action type
             if self.opp_bet_this_hand or self.opp_raised_this_hand:
                 self.opp_bet_showdown_cards.append(oppcard)
+                # Track for bet_card_mean calculation
+                self.opp_bet_card_sum += oppcard
+                self.opp_bet_card_count += 1
             elif self.we_bet_this_hand:
                 # They called our bet
                 self.opp_call_showdown_cards.append(oppcard)
@@ -562,6 +634,9 @@ class PokerPlayer:
         # Check for AllIn opponents early
         if self.hands_played <= self.early_allin_threshold:
             self._check_early_allin()
+        
+        # Store early baseline for adaptation detection
+        self._store_early_baseline()
     
     def _check_early_allin(self):
         """Detect AllIn opponents early (within 30 hands)."""
