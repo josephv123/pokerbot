@@ -211,16 +211,11 @@ class PokerPlayer:
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
         Minimal exploitation: Only detect AllIn players.
-        Pure GTO otherwise - exploitation was hurting overall performance.
         """
-        # Check for AllIn players (only exploitation that consistently helps)
         if self.opp_bet_count >= 5:
             allin_freq = self.opp_allin_count / self.opp_bet_count
             if allin_freq > 0.70:
-                # Counter all-in: call with hands > 0.5, never bluff
                 return (0, 0.5, 1.0, 0.5, 0, 1.0)
-        
-        # Default: pure GTO
         return (a, b, c, d, e, f)
     
     def _apply_ev_tuning(self, a, b, c, d, e, f):
