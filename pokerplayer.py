@@ -1,95 +1,150 @@
+import os
 import random
+from typing import Optional
+
+try:
+    import numpy as np
+    import torch
+    from rl_training import utils as rl_utils
+    from rl_training.dqn_agent import QNetwork
+except Exception:  # pragma: no cover - fallback when RL stack unavailable
+    np = None
+    torch = None
+    rl_utils = None
+    QNetwork = None
+
+
+class RLPolicyAdapter:
+    """
+    Wrapper that loads the trained DQN checkpoint (if present) and exposes an `act` method.
+    """
+
+    def __init__(self, model_path: str = "rl_training/models/dqn.pt"):
+        self.model_path = model_path
+        self.enabled = (
+            torch is not None
+            and np is not None
+            and rl_utils is not None
+            and QNetwork is not None
+            and os.path.exists(model_path)
+        )
+        self.model: Optional[QNetwork] = None
+        if self.enabled:
+            self.model = QNetwork()
+            state_dict = torch.load(model_path, map_location="cpu")
+            self.model.load_state_dict(state_dict)
+            self.model.eval()
+
+    def is_ready(self) -> bool:
+        return self.enabled and self.model is not None
+
+    def act(self, obs: np.ndarray) -> int:
+        if not self.is_ready():
+            raise RuntimeError("RL policy not initialized")
+        with torch.no_grad():
+            tensor = torch.from_numpy(obs).float().unsqueeze(0)
+            logits = self.model(tensor)
+            return int(torch.argmax(logits, dim=1).item())
+
+
+class ThresholdFallback:
+    """
+    Deterministic threshold logic used whenever RL models are unavailable.
+    """
+
+    def __init__(self):
+        self.BLUFF_THRESHOLD = 0.18
+        self.FOLD_THRESHOLD = 0.35
+        self.VALUE_THRESHOLD = 0.71
+
+    def bet(self, card, myscore, oppscore, minbet, pot):
+        max_bet = min(myscore, oppscore)
+        pot_odds = minbet / (pot + minbet) if (pot + minbet) > 0 else 0
+        if card > self.VALUE_THRESHOLD:
+            bet_multiplier = 1 + int((card - self.VALUE_THRESHOLD) / 0.1)
+            if card > 0.9:
+                bet_multiplier = min(bet_multiplier + 1, 4)
+            bet_size = pot + minbet * bet_multiplier
+            return min(bet_size, max_bet)
+        elif card < self.BLUFF_THRESHOLD:
+            if random.random() < pot_odds:
+                return min(pot + minbet, max_bet)
+            return 0
+        elif card < self.FOLD_THRESHOLD:
+            return 0
+        else:
+            return pot
 
 
 class PokerPlayer:
     """
-    Main PokerPlayer class - Refined OptimalThresholdPlayer (Phylum A4)
-    with position awareness, improved pot odds calculations, and optimized thresholds.
+    Final integration: prefer the learned DQN policy, fall back to the hand-tuned GTO variant.
     """
+
     def __init__(self):
-        """Initialize my internal variables."""
+        self.policy = RLPolicyAdapter()
+        self.fallback = ThresholdFallback()
+        self.opp_stats = rl_utils.OpponentStats() if rl_utils else None
+        self.current_card = 0.0
         self.is_big_blind = False
-        # Refined thresholds - optimized through testing
-        self.BLUFF_THRESHOLD = 0.18
-        self.FOLD_THRESHOLD = 0.35  # Original - tested and works well
-        self.VALUE_THRESHOLD = 0.71  # Slightly loosened from 0.72 - best performing in tests
+        self.bet_round = 0
+        self.myscore = 100.0
+        self.oppscore = 100.0
+        self.last_minbet = 1.0
 
     def start(self, bigblind, card, myscore, oppscore, minbet, pot):
-        """
-        Start a game of poker.
-
-        bigblind  - True if I'm the big blind, False if I'm the small blind.
-        card      - contains my card.
-        myscore   - my score
-        oppscore  - my opponent's score
-        minbet    - the smallest bet increase that I am allowed make
-        pot       - contains the current bid.
-        """
         self.is_big_blind = bigblind
+        self.current_card = card
+        self.myscore = myscore
+        self.oppscore = oppscore
+        self.last_minbet = minbet
+        self.bet_round = 0
+
+    def _observation(self, pot) -> Optional[np.ndarray]:
+        if not rl_utils or not self.policy.is_ready():
+            return None
+        return rl_utils.encode_state(
+            card=self.current_card,
+            pot=pot,
+            myscore=self.myscore,
+            oppscore=self.oppscore,
+            minbet=self.last_minbet,
+            is_big_blind=self.is_big_blind,
+            bet_round=self.bet_round,
+            opponent_stats=self.opp_stats,
+        )
 
     def bet(self, card, myscore, oppscore, minbet, pot):
-        """
-        Betting rounds - refined GTO threshold strategy with conservative improvements.
+        self.current_card = card
+        self.myscore = myscore
+        self.oppscore = oppscore
+        self.last_minbet = minbet
+        self.bet_round += 1
 
-        card     - my card
-        myscore  - my score
-        oppscore - my opponent's score
-        minbet   - the smallest bet increase that I am allowed make
-        pot      - contains the current bid.
-        """
-        max_bet = min(myscore, oppscore)
-        
-        # Calculate pot odds for bluffing frequency
-        pot_odds = minbet / (pot + minbet) if (pot + minbet) > 0 else 0
-        
-        # Use thresholds directly (no position adjustment for now)
-        fold_thresh = self.FOLD_THRESHOLD
-        value_thresh = self.VALUE_THRESHOLD
-        
-        # Value betting range
-        if card > value_thresh:
-            # Refined bet sizing - use original formula with slight modification
-            # Original: bet_multiplier = 1 + int((card - 0.71) / 0.1)
-            # For card=0.71-0.81: multiplier=1, 0.81-0.91: multiplier=2, 0.91+: multiplier=3
-            bet_multiplier = 1 + int((card - value_thresh) / 0.1)
-            # Allow slightly larger bets for very strong hands (card > 0.9)
-            if card > 0.9:
-                bet_multiplier = min(bet_multiplier + 1, 4)  # Add 1 for very strong hands, cap at 4
-            bet_size = pot + minbet * bet_multiplier
-            return min(bet_size, max_bet)
-        
-        # Bluffing range
-        elif card < self.BLUFF_THRESHOLD:
-            # Bluff frequency = pot odds (GTO optimal)
-            if random.random() < pot_odds:
-                bet_amount = pot + minbet
-                return min(bet_amount, max_bet)
-            else:
-                return 0  # Fold
-        
-        # Folding range (weak non-bluffs)
-        elif card < fold_thresh:
-            return 0  # Fold weak hands
-        
-        # Calling range (medium strength)
-        else:
-            return pot  # Call with medium strength hands
+        obs = self._observation(pot)
+        if obs is not None:
+            action = self.policy.act(obs)
+            return rl_utils.decode_action(
+                action,
+                pot=pot,
+                minbet=minbet,
+                myscore=myscore,
+                oppscore=oppscore,
+            )
+        return self.fallback.bet(card, myscore, oppscore, minbet, pot)
 
     def end(self, iwon, oppcard, myscore, oppscore, minbet, winnings):
-        """
-        The game is over. Who won? How much did they win?
-
-        iwon     - True if I won, False if I lost.
-        oppcard  - contains my opponent's card unless someone
-                   folded. In that case, it contains None.
-        myscore  - my new score after the win/loss
-        oppscore - my opponent's score after the win/loss
-        minbet   - the smallest bet increase that I am allowed make
-        winnings - how many points were won by the winner
-        """
-        # Currently no state tracking needed for GTO strategy
-        # This will be used in Phylum B (Opponent Modeling)
-        pass
+        if self.opp_stats:
+            if oppcard is None and iwon:
+                self.opp_stats.update("fold")
+            elif oppcard is None and not iwon:
+                self.opp_stats.update("raise")
+            else:
+                self.opp_stats.update("call")
+        self.myscore = myscore
+        self.oppscore = oppscore
+        self.last_minbet = minbet
+        self.bet_round = 0
 
 
 # ============================================================================

@@ -1,0 +1,22 @@
+{
+  "DQN": {
+    "results": [],
+    "avg_win_rate": 0.0,
+    "status": "model_not_found"
+  },
+  "PPO": {
+    "results": [],
+    "avg_win_rate": 0.0,
+    "status": "model_not_found"
+  },
+  "CFR": {
+    "results": [],
+    "avg_win_rate": 0.0,
+    "status": "model_not_found"
+  },
+  "Hybrid": {
+    "results": [],
+    "avg_win_rate": 0.0,
+    "status": "model_not_found"
+  }
+}
