@@ -1,8 +1,8 @@
 # Poker Bot Research & Implementation Notes
 
-## Current Performance (2025-11-25)
-- **Overall training set: 68.0%** (up from 66.3% baseline)
-- **vs John3: 37%** (up from 25% baseline)
+## Current Performance (2025-11-25, Updated)
+- **Overall training set: 71.6-71.9%** (up from 67.7% previous)
+- **vs John3: 28%** (similar to before)
 
 ## What Worked
 
@@ -75,9 +75,47 @@ The final implementation uses:
 1. Original aggressive default strategy (proven to work)
 2. Opponent type detection after 15 bets
 3. Adaptation detection via rolling window drift
-4. Bet-card-mean based calling adjustment
+4. Bet-card-mean based calling adjustment (enhanced)
 5. AllIn detection for maniac opponents
+6. NEW: aggressive_folder type for moderate folders with high aggression
+7. NEW: trap_aggressive mode with wider betting ranges
 
 Key files modified:
 - pokerplayer.py: Added rolling window tracking, bet_card_mean adjustment, adaptation detection
 - analyze_opponents.py: Enhanced to extract 5D features and run k-means clustering
+
+## Latest Update (2025-11-25) - Aggression-Based Improvements
+
+### New Features Added
+
+1. **aggressive_folder opponent type**
+   - Detects opponents with fold_rate 55-85% AND aggression >= 70%
+   - These opponents fold to our bets but bet aggressively when we check
+   - Uses trap_aggressive strategy mode
+
+2. **trap_aggressive strategy mode**
+   - bet_mult: 5 (still bet aggressively - they fold!)
+   - bluff_mult: 3.5 (bet more, check less to avoid their aggression)
+   - value_mult: 1.25 (wider value betting)
+   - call_mult: 0.90 (slightly wider calls)
+
+3. **Enhanced bet_card_mean exploitation**
+   - Lowered threshold from 10 to 6 showdowns for faster adaptation
+   - bet_card_mean >= 0.65: Set call threshold to bet_card_mean - 0.07
+   - bet_card_mean < 0.55: Call wider (opponent bets weak)
+
+4. **Aggression-based early adjustment**
+   - If aggression > 80% with limited showdown data
+   - Use moderate call threshold (0.58) until more data
+
+### Results
+- Overall: 67.7% → 71.6-71.9% (+4%)
+- Some individual improvements: P001 (+13%), P153 (+39%), P083 (+20%)
+- Some regressions: P117, P113 (designed to exploit aggressive play)
+- Net positive because improvements outweigh regressions
+
+### Remaining Challenges
+- P117, P113, P173 remain difficult (< 20% win rate)
+- These opponents use counter-strategies specifically designed to exploit aggressive play
+- May need completely different approach (GTO-like) to beat them
+- Trade-off: Playing more passively hurts performance vs majority of folders

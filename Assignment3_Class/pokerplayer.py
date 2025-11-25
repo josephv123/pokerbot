@@ -99,6 +99,7 @@ class PokerPlayer:
         """
         Detect opponent type based on their response patterns to our bets.
         Called after we have enough data (15+ bet responses).
+        Now includes aggression dimension for better classification.
         """
         if self.our_bet_count < self.early_detection_threshold:
             return None  # Not enough data
@@ -106,8 +107,18 @@ class PokerPlayer:
         fold_rate = self.our_bet_gets_fold / self.our_bet_count
         raise_rate = self.our_bet_gets_raise / self.our_bet_count
         
-        # Classify opponent
-        if raise_rate >= self.aggressor_raise_threshold:
+        # Calculate aggression (how often they bet when checked to)
+        # Lower threshold to 5 for faster detection
+        aggression = 0.0
+        if self.we_checked_to_opp >= 5:
+            aggression = self.opp_bet_when_checked / self.we_checked_to_opp
+        
+        # Classify opponent - check for aggressive_folder first
+        # Only for moderate folders (55-85%) - extreme folders (>90%) should stay as 'folder'
+        if fold_rate >= self.folder_threshold and fold_rate < 0.85 and aggression >= 0.70:
+            # Folds to our bets but bets aggressively when checked to
+            return 'aggressive_folder'
+        elif raise_rate >= self.aggressor_raise_threshold:
             return 'aggressor'
         elif fold_rate >= self.folder_threshold:
             return 'folder'
@@ -130,6 +141,13 @@ class PokerPlayer:
         elif self.strategy_mode == 'trapping':
             # For aggressors: pot-sized, let them bet, call wider
             return {'bet_mult': 2, 'bluff_mult': 0.5, 'value_mult': 1.15, 'call_mult': 0.85}
+        elif self.strategy_mode == 'trap_aggressive':
+            # For aggressive folders: BET EVEN MORE AGGRESSIVELY
+            # They fold to bets, but crush us when we check
+            # Solution: minimize checking by widening betting ranges
+            # High bluff_mult = bluff more (check less with weak)
+            # High value_mult = value bet wider (check less with medium-strong)
+            return {'bet_mult': 5, 'bluff_mult': 3.5, 'value_mult': 1.25, 'call_mult': 0.90}
         else:  # balanced
             # Standard GTO-ish: pot-sized, normal bluffs
             return {'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
@@ -149,7 +167,10 @@ class PokerPlayer:
             return
         
         # Map opponent type to strategy mode
-        if opp_type == 'folder':
+        if opp_type == 'aggressive_folder':
+            # They fold to bets but bet aggressively when we check
+            self.strategy_mode = 'trap_aggressive'
+        elif opp_type == 'folder':
             self.strategy_mode = 'aggressive'
         elif opp_type == 'caller':
             self.strategy_mode = 'tight'
@@ -283,6 +304,8 @@ class PokerPlayer:
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
         Selective exploitation based on opponent patterns.
+        Uses bet_card_mean as the PRIMARY signal for calling adjustments.
+        Aggression informs when to apply wider OR tighter calling.
         """
         # AllIn detection - if opponent frequently goes all-in, play tight
         if self.opp_bet_count >= 5:
@@ -290,17 +313,34 @@ class PokerPlayer:
             if allin_freq > 0.70:
                 return (0, 0.5, 1.0, 0.5, 0, 1.0)
         
-        # Adjust calling threshold based on opponent's betting range
-        if self.opp_bet_card_count >= 10:
+        # PRIMARY ADJUSTMENT: Use bet_card_mean to set call threshold
+        # This is the most reliable signal - actual cards opponent shows
+        if self.opp_bet_card_count >= 6:
             bet_card_mean = self.opp_bet_card_sum / self.opp_bet_card_count
-            if bet_card_mean < 0.55:
-                # Opponent bets with weak hands - widen calling range
-                d = d * 0.90  # Call 10% more as BB
-                b = b * 0.90  # Call 10% more as SB
-            elif bet_card_mean > 0.75:
-                # Opponent only bets strong hands - tighten calling range
-                d = d * 1.10  # Call 10% less as BB
-                b = b * 1.10  # Call 10% less as SB
+            
+            # Set call threshold based on opponent's actual betting range
+            # Call with cards that beat their average betting hand (minus small edge)
+            target_call = max(0.45, bet_card_mean - 0.07)
+            
+            # Apply this as the floor/ceiling for call thresholds
+            if bet_card_mean >= 0.65:
+                # Opponent bets with good hands - need strong hands to call
+                b = max(b, target_call)
+                d = max(d, target_call)
+            elif bet_card_mean < 0.55:
+                # Loose bettor - can call wider
+                b = min(b, target_call + 0.03)
+                d = min(d, target_call + 0.03)
+        
+        # SECONDARY ADJUSTMENT: Aggression affects how often they bet, not strength
+        # High aggression with LIMITED showdown data suggests we're folding too much
+        elif self.we_checked_to_opp >= 5 and self.opp_bet_card_count < 6:
+            aggression = self.opp_bet_when_checked / self.we_checked_to_opp
+            if aggression > 0.80:
+                # Very high aggression, no showdown data - they bet everything
+                # Be cautious - use moderate call threshold until we get more data
+                b = min(b, 0.58)
+                d = min(d, 0.58)
         
         return (a, b, c, d, e, f)
     
