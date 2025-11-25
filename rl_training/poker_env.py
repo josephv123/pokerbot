@@ -14,12 +14,8 @@ import random
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
-try:  # Prefer gymnasium but gracefully fall back to classic gym.
-    import gymnasium as gym
-    from gymnasium import spaces
-except ModuleNotFoundError:  # pragma: no cover - fallback for legacy gym
-    import gym
-    from gym import spaces  # type: ignore
+import gymnasium as gym
+from gymnasium import spaces
 
 import numpy as np
 
