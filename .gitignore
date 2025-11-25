@@ -1,4 +1,8 @@
-Assignment3_Class\__pycache__
-Assignment3_Class\opponents\*
+Assignment3_Class/__pycache__
+Assignment3_Class/opponents/*
 __pycache__
 opponents/*
+*.so
+*.dll
+*.dylib
+*.pyd
