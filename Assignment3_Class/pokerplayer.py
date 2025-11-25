@@ -138,7 +138,6 @@ class PokerPlayer:
     def _get_pot_sized_bet(self, current_pot, minbet):
         """
         Calculate a pot-sized bet that is a valid multiple of minbet.
-        Returns the total amount to put in pot (new betPot level).
         """
         target_bet = current_pot * 2
         bet = int(target_bet / minbet) * minbet
