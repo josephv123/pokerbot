@@ -114,6 +114,38 @@ Key files modified:
 - Some regressions: P117, P113 (designed to exploit aggressive play)
 - Net positive because improvements outweigh regressions
 
+## Update (2025-11-25) - Hyper-Aggressive Detection
+
+### New Features Added
+
+1. **hyper_aggressive opponent type**
+   - Detects opponents with aggression >= 90% (ALWAYS bet when checked to)
+   - Takes priority over other classifications
+   - These opponents punish checking severely
+
+2. **hyper_aggressive strategy mode**
+   - bet_mult: 3 (moderate sizing)
+   - bluff_mult: 1.8 (bet wide to avoid checking)
+   - value_mult: 1.05 (standard value betting)
+   - call_mult: 0.65 (call VERY wide - they bet with anything)
+
+3. **aggressive_caller opponent type**
+   - Detects opponents with fold_rate < 40% AND aggression >= 60%
+   - These call a lot but also bet aggressively when checked to
+   - Uses aggressive_caller strategy mode
+
+4. **aggressive_caller strategy mode**
+   - bet_mult: 3 (moderate sizing)
+   - bluff_mult: 0.4 (minimal bluffing - they call)
+   - value_mult: 0.90 (thin value betting)
+   - call_mult: 0.70 (call wider - they bluff)
+
+### Results
+- Overall: ~71.0-71.4% (maintained baseline)
+- P113: Improved from 14% to ~18-20%
+- P117: Improved from 11% to ~15-21%
+- P173: Slight improvement from 13% to ~12-16%
+
 ### Remaining Challenges
 - P117, P113, P173 remain difficult (< 20% win rate)
 - These opponents use counter-strategies specifically designed to exploit aggressive play

@@ -113,6 +113,12 @@ class PokerPlayer:
         if self.we_checked_to_opp >= 5:
             aggression = self.opp_bet_when_checked / self.we_checked_to_opp
         
+        # Check for hyper-aggressive opponents first (always bet when checked to)
+        # These need special handling regardless of fold rate
+        if aggression >= 0.90:
+            # They ALWAYS bet when we check - never give them free cards
+            return 'hyper_aggressive'
+        
         # Classify opponent - check for aggressive_folder first
         # Only for moderate folders (55-85%) - extreme folders (>90%) should stay as 'folder'
         if fold_rate >= self.folder_threshold and fold_rate < 0.85 and aggression >= 0.70:
@@ -123,6 +129,10 @@ class PokerPlayer:
         elif fold_rate >= self.folder_threshold:
             return 'folder'
         elif fold_rate <= self.caller_threshold:
+            # Check for aggressive_caller: low fold rate BUT high aggression
+            # These opponents call a lot but also bet aggressively when checked to
+            if fold_rate < 0.40 and aggression >= 0.60:
+                return 'aggressive_caller'
             return 'caller'
         else:
             return 'balanced'
@@ -148,6 +158,15 @@ class PokerPlayer:
             # High bluff_mult = bluff more (check less with weak)
             # High value_mult = value bet wider (check less with medium-strong)
             return {'bet_mult': 5, 'bluff_mult': 3.5, 'value_mult': 1.25, 'call_mult': 0.90}
+        elif self.strategy_mode == 'aggressive_caller':
+            # For aggressive callers (P113-style): they call a lot but bet aggressively when checked to
+            # Strategy: value bet thinner (they call wide), call MUCH wider (they bluff), don't bluff much
+            return {'bet_mult': 3, 'bluff_mult': 0.4, 'value_mult': 0.90, 'call_mult': 0.70}
+        elif self.strategy_mode == 'hyper_aggressive':
+            # For hyper-aggressive opponents who ALWAYS bet when checked to
+            # Strategy: Don't check to them - bet wide to deny their aggression
+            # Call VERY wide when they bet (they bet with anything)
+            return {'bet_mult': 3, 'bluff_mult': 1.8, 'value_mult': 1.05, 'call_mult': 0.65}
         else:  # balanced
             # Standard GTO-ish: pot-sized, normal bluffs
             return {'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
@@ -167,11 +186,17 @@ class PokerPlayer:
             return
         
         # Map opponent type to strategy mode
-        if opp_type == 'aggressive_folder':
+        if opp_type == 'hyper_aggressive':
+            # They ALWAYS bet when checked to - don't give them free cards
+            self.strategy_mode = 'hyper_aggressive'
+        elif opp_type == 'aggressive_folder':
             # They fold to bets but bet aggressively when we check
             self.strategy_mode = 'trap_aggressive'
         elif opp_type == 'folder':
             self.strategy_mode = 'aggressive'
+        elif opp_type == 'aggressive_caller':
+            # They call a lot but bet aggressively when checked to
+            self.strategy_mode = 'aggressive_caller'
         elif opp_type == 'caller':
             self.strategy_mode = 'tight'
         elif opp_type == 'aggressor':
