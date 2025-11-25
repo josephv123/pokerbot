@@ -29,18 +29,22 @@ class PokerPlayer:
         self.call_alpha, self.call_beta = 1, 1      # Prior: 50% call rate  
         self.value_alpha, self.value_beta = 4, 1    # Prior: ~80% value rate
         
-        # Phase 4/5: Opponent classification - REVISED
-        self.opp_type = None  # None, 'allin', 'passive'
+        # Phase 4/5: Opponent classification - REVISED with 3-mode system
+        self.opp_type = None  # None, 'allin', 'folder', 'caller', 'aggressor'
         self.opp_allin_count = 0  # Times opponent went all-in or near
         
-        # Step 5.2: Early AllIn detection (within first 30 hands)
+        # Strategy mode: 'aggressive', 'balanced', 'tight'
+        self.strategy_mode = 'aggressive'  # Default to current aggressive strategy
+        
+        # Early detection thresholds (original best config)
+        self.early_detection_threshold = 15  # Minimum bets to classify
         self.early_allin_threshold = 30
         self.allin_detection_ratio = 0.70  # >70% all-in = allin player
         
-        # Step 5.3: Conservative passive detection (after 100+ hands)
-        self.passive_detection_hands = 100
-        self.passive_bluff_threshold = 0.05  # <5% bluff = passive
-        self.passive_bet_threshold = 0.25    # <25% bet frequency = passive
+        # Opponent classification thresholds (original best config)
+        self.folder_threshold = 0.55     # >55% fold rate = folder
+        self.caller_threshold = 0.30     # <30% fold rate = caller
+        self.aggressor_raise_threshold = 0.30  # >30% raise rate = aggressor
         
         # Step 6.1: Rolling window for recent performance
         self.recent_results = []  # Last N hands: (won: bool, profit: int)
@@ -129,19 +133,79 @@ class PokerPlayer:
             self.conservative_mode = False
             self.aggressive_mode = False
         
+    def _detect_opponent_type(self):
+        """
+        Detect opponent type based on their response patterns to our bets.
+        Called after we have enough data (15+ bet responses).
+        """
+        if self.our_bet_count < self.early_detection_threshold:
+            return None  # Not enough data
+        
+        fold_rate = self.our_bet_gets_fold / self.our_bet_count
+        call_rate = self.our_bet_gets_call / self.our_bet_count
+        raise_rate = self.our_bet_gets_raise / self.our_bet_count
+        
+        # Classify opponent
+        if raise_rate >= self.aggressor_raise_threshold:
+            return 'aggressor'
+        elif fold_rate >= self.folder_threshold:
+            return 'folder'
+        elif fold_rate <= self.caller_threshold:
+            return 'caller'
+        else:
+            return 'balanced'
+    
+    def _get_strategy_params(self):
+        """
+        Get strategy parameters based on detected opponent type.
+        Returns (bet_mult, bluff_mult, value_mult, call_mult)
+        """
+        if self.strategy_mode == 'aggressive':
+            # Default for folders: 4x pot, 2.5x bluff (original optimal)
+            return {'bet_mult': 5, 'bluff_mult': 2.5, 'value_mult': 1.10, 'call_mult': 1.15}
+        elif self.strategy_mode == 'tight':
+            # For callers: smaller bets, minimal bluffing, tighter value
+            return {'bet_mult': 2, 'bluff_mult': 0.3, 'value_mult': 1.0, 'call_mult': 1.0}
+        elif self.strategy_mode == 'trapping':
+            # For aggressors: pot-sized, let them bet, call wider
+            return {'bet_mult': 2, 'bluff_mult': 0.5, 'value_mult': 1.15, 'call_mult': 0.85}
+        else:  # balanced
+            # Standard GTO-ish: pot-sized, normal bluffs
+            return {'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
+    
+    def _update_strategy_mode(self):
+        """Update strategy mode based on opponent detection."""
+        opp_type = self._detect_opponent_type()
+        
+        if opp_type is None:
+            return  # Not enough data yet
+        
+        self.opp_type = opp_type
+        
+        # Map opponent type to strategy mode
+        if opp_type == 'folder':
+            self.strategy_mode = 'aggressive'
+        elif opp_type == 'caller':
+            self.strategy_mode = 'tight'
+        elif opp_type == 'aggressor':
+            self.strategy_mode = 'trapping'
+        else:  # balanced
+            self.strategy_mode = 'balanced'
+    
     def _calculate_gto_thresholds(self, bet_size_ratio=1.0):
         """
         Calculate GTO thresholds based on bet size relative to pot.
-        For pot limit (B=P), bet_size_ratio = 1.0
+        Adjusts based on detected opponent type and strategy mode.
         """
         B = 2.0 * bet_size_ratio
         P = 2.0
         
-        # Tunable multipliers - OPTIMAL CONFIG
-        SB_BLUFF_MULT = 2.5  # Optimal: 2.5x
-        BB_BLUFF_MULT = 2.5  # Optimal: 2.5x
-        VALUE_MULT = 1.10   # Optimal: tighter value range
-        CALL_MULT = 1.15    # Optimal
+        # Get strategy parameters based on mode
+        params = self._get_strategy_params()
+        SB_BLUFF_MULT = params['bluff_mult']
+        BB_BLUFF_MULT = params['bluff_mult']
+        VALUE_MULT = params['value_mult']
+        CALL_MULT = params['call_mult']
         
         # P1 thresholds
         a = B / ((B + 1) * (B + 4)) * SB_BLUFF_MULT  # Bluff threshold
@@ -163,10 +227,14 @@ class PokerPlayer:
     def _get_pot_sized_bet(self, current_pot, minbet):
         """
         Calculate bet that is a valid multiple of minbet.
-        Using 4x pot overbet - optimal for this opponent pool.
+        Bet size varies based on strategy mode.
         """
-        # 4x pot overbet: bet = 4 * pot, total = 5 * pot
-        target_bet = current_pot * 5
+        # Get bet multiplier from strategy params
+        params = self._get_strategy_params()
+        bet_mult = params['bet_mult']
+        
+        # target_bet = current_pot * bet_mult (e.g., 5 for 4x pot overbet)
+        target_bet = current_pot * bet_mult
         bet = int(target_bet / minbet) * minbet
         return max(bet, current_pot + minbet)
     
@@ -210,18 +278,17 @@ class PokerPlayer:
         self.minbet = minbet
         self.pot = pot
         
+        # Update strategy mode based on opponent detection
+        self._update_strategy_mode()
+        
         # Phase 1b: Calculate correct bet size ratio
         bet_size_ratio = self._get_bet_size_ratio(pot)
         
-        # Get GTO thresholds
+        # Get GTO thresholds (adjusted for strategy mode)
         a, b, c, d, e, f = self._calculate_gto_thresholds(bet_size_ratio)
         
         # Step 5.2/5.3: Apply SELECTIVE exploitative adjustments
         a, b, c, d, e, f = self._apply_selective_exploitation(a, b, c, d, e, f)
-        
-        # Step 6.2/6.3: Disabled - pure GTO with selective exploitation performs best
-        # a, b, c, d, e, f = self._apply_ev_tuning(a, b, c, d, e, f)
-        # a, b, c, d, e, f = self._apply_variance_adjustments(a, b, c, d, e, f)
         
         max_bet = min(myscore, oppscore)
         
@@ -492,35 +559,19 @@ class PokerPlayer:
             action = 'bet' if (self.opp_bet_this_hand or self.opp_raised_this_hand) else 'passive'
             self.opp_showdown_hands.append((oppcard, action, winnings))
         
-        # Step 5.2: Early AllIn detection (within first 30 hands)
-        if self.hands_played <= self.early_allin_threshold and self.opp_type is None:
+        # Check for AllIn opponents early
+        if self.hands_played <= self.early_allin_threshold:
             self._check_early_allin()
-        
-        # Step 5.3: Conservative passive detection (after 100+ hands)
-        if self.hands_played == self.passive_detection_hands and self.opp_type is None:
-            self._check_passive_opponent()
     
     def _check_early_allin(self):
-        """Step 5.2: Detect AllIn opponents early (within 30 hands)."""
+        """Detect AllIn opponents early (within 30 hands)."""
         if self.opp_bet_count < 5:
             return  # Not enough betting data
         
         allin_freq = self.opp_allin_count / self.opp_bet_count
         if allin_freq >= self.allin_detection_ratio:
             self.opp_type = 'allin'
-    
-    def _check_passive_opponent(self):
-        """Step 5.3: Detect passive opponents after 100+ hands with high confidence."""
-        total_actions = self.opp_bet_count + self.opp_check_count + self.opp_fold_count + self.opp_call_count
-        if total_actions < 50:
-            return  # Not enough data
-        
-        bet_freq = self.opp_bet_count / total_actions
-        bluff_freq = self._get_opp_bluff_freq()
-        
-        # Very conservative thresholds
-        if bluff_freq < self.passive_bluff_threshold and bet_freq < self.passive_bet_threshold:
-            self.opp_type = 'passive'
+            self.strategy_mode = 'tight'  # Against all-in, play tight
     
     def _update_bayesian_model(self, oppcard):
         """Phase 3: Update Bayesian model based on opponent's revealed card."""

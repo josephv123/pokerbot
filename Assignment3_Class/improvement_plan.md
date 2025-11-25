@@ -1,89 +1,99 @@
-# Poker Bot Improvement Plan v2: COMPLETED ✓
+# Poker Bot Improvement Plan v3: 66.7% Win Rate
 
-## Final Result: 61.9% Win Rate (Target: 60%+)
+## Current Result: 66.7% Win Rate (Target: 70%+)
 
-## What Worked - Key Discoveries
+## Phase 3: Adaptive Strategy with Opponent Detection
 
-### 1. Large Overbets (4x Pot)
+### Key Improvement: 3-Mode Strategy System
 
-The biggest breakthrough was using **4x pot overbets** instead of pot-sized bets.
+Added opponent detection that classifies opponents based on their response to our bets:
 
-- Standard pot-sized bets: ~48%
-- 2x pot: ~51%
-- 3x pot: ~55%
-- **4x pot: ~62%** ← OPTIMAL
+| Mode | Trigger | Bet Size | Bluff Freq | Target Opponents |
+|------|---------|----------|------------|------------------|
+| **Aggressive** | fold_rate > 55% | 4x pot | 2.5x GTO | Folders |
+| **Balanced** | 30-55% fold rate | 3x pot | 1.5x GTO | GTO-like |
+| **Tight** | fold_rate < 30% | 2x pot | 0.3x GTO | Calling stations |
+| **Trapping** | raise_rate > 30% | 2x pot | 0.5x GTO | Aggressors |
 
-### 2. Increased Bluffing (2.5x GTO)
+### Opponent Classification Analysis
 
-With larger bets, higher bluffing frequency works better:
+Created `analyze_opponents.py` to profile problem opponents:
 
-- 1x GTO bluff: ~43%
-- 2x GTO bluff: ~58%
-- **2.5x GTO bluff: ~62%** ← OPTIMAL
+**Categories Identified:**
+- **FOLDER (11 opponents)**: P003, P019, P043, P065, P117, P129, P139, P145, P151, P173, John3
+- **TIGHT_CALLER (10 opponents)**: P001, P011, P031, P049, P059, P089, P093, P097, P101, P113
+- **AGGRESSOR (2 opponents)**: P133, P153
+- **GTO_LIKE (1 opponent)**: P109
 
-### 3. Tighter Calling (1.15x threshold)
+### Win Rate Improvements
 
-Call only with stronger hands when facing opponent bets:
+Key opponents where detection helped:
 
-- Standard 1.0x: ~59%
-- **1.15x (tighter): ~62%** ← OPTIMAL
+| Opponent | Before (62%) | After (66.7%) | Change |
+|----------|--------------|---------------|--------|
+| P011 | 6% | 38% | +32% |
+| P031 | 8% | 65% | +57% |
+| P089 | 8% | 69% | +61% |
+| P059 | 21% | 74% | +53% |
+| P093 | 30% | 52% | +22% |
+| P101 | 9% | 50% | +41% |
+| John3 | 16% | 24% | +8% |
 
-### 4. Tighter Value Range (1.10x threshold)
+### Remaining Problem Opponents (<30% win rate)
 
-Value bet with only the strongest hands:
+Still struggling against:
+- P113: 17%, P117: 7%, P173: 16%
+- P097: 23%, P145: 28%, P151: 28%
 
-- Standard 1.0x: ~59%
-- **1.10x (tighter): ~62%** ← OPTIMAL
+These opponents appear to have sophisticated counter-strategies.
 
-## What Failed
+## Configuration Details
 
-### Exploitation Attempts
-
-All exploitation strategies hurt overall performance:
-
-- John3-style passive strategy: -14%
-- Fold-rate based bluffing adjustment: -3%
-- Showdown-based range estimation: -2%
-- Calling station detection: -2%
-
-### Other Bet Sizes
-
-- Half-pot bets: ~45%
-- 5x pot overbets: ~56%
-
-### Threshold Adjustments That Hurt
-
-- Wider value range (VALUE_MULT < 1.0): Hurts
-- Wider calling (CALL_MULT < 1.0): Hurts
-
-## Final Optimal Configuration
-
+### Detection Thresholds
 ```python
-# Bet sizing
-target_bet = current_pot * 5  # 4x pot overbet
-
-# Bluffing multipliers
-SB_BLUFF_MULT = 2.5  # 2.5x GTO bluff frequency
-BB_BLUFF_MULT = 2.5
-
-# Threshold adjustments
-VALUE_MULT = 1.10   # Tighter value range
-CALL_MULT = 1.15    # Tighter calling
+early_detection_threshold = 15  # Minimum bets to classify
+folder_threshold = 0.55         # >55% fold rate = folder
+caller_threshold = 0.30         # <30% fold rate = caller
+aggressor_raise_threshold = 0.30  # >30% raise rate = aggressor
 ```
 
-## Why This Works
+### Strategy Parameters by Mode
+```python
+# Aggressive (default for folders)
+{'bet_mult': 5, 'bluff_mult': 2.5, 'value_mult': 1.10, 'call_mult': 1.15}
 
-1. **Large bets put maximum pressure**: Many opponents fold too much to big bets
-2. **High bluffing exploits folders**: With 4x pot bets, we can bluff more profitably
-3. **Tight calling avoids traps**: Opponents who bet usually have strong hands
-4. **Tight value betting maximizes profit**: Only bet for value when we're very likely ahead
+# Tight (for calling stations)
+{'bet_mult': 2, 'bluff_mult': 0.3, 'value_mult': 1.0, 'call_mult': 1.0}
 
-## Opponents We Still Lose To
+# Trapping (for aggressors)
+{'bet_mult': 2, 'bluff_mult': 0.5, 'value_mult': 1.15, 'call_mult': 0.85}
 
-Some opponents (~10%) are immune to this strategy:
+# Balanced (for GTO-like/unknown)
+{'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
+```
 
-- P001, P011, P031: Strong GTO-like play
-- P097, P117, P173: Very tight, only play premium hands
-- P089, P101: Unknown strategy, very effective
+## What Worked
 
-These losses are acceptable given the 62% overall win rate.
+1. **Early opponent detection**: Classifying opponents within 15 bet responses
+2. **Mode-specific strategies**: Different bet sizes and bluff frequencies per type
+3. **Tight mode for callers**: Drastically reduced bluffing against calling stations
+4. **Trapping mode for aggressors**: Smaller bets, let them bet, call wider
+
+## What Didn't Work
+
+1. **Very aggressive bluffing (3x+)**: Hurt performance even against folders
+2. **Zero bluffing in tight mode**: Slightly worse than 0.3x bluffing
+3. **Fast detection (10 hands)**: Too noisy, mis-classified opponents
+4. **Extreme value thresholds (1.25x)**: Too tight, missed value
+
+## Next Steps to Reach 70%
+
+1. Fine-tune detection thresholds for remaining problem opponents
+2. Add more sophisticated opponent modeling (Bayesian updates)
+3. Consider per-opponent learned adjustments
+4. Investigate check-raise strategies against specific opponent types
+
+## Files Modified
+
+- `pokerplayer.py`: Added 3-mode strategy system with opponent detection
+- `analyze_opponents.py`: New debug script for opponent profiling
