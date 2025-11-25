@@ -114,36 +114,24 @@ class PokerPlayer:
         """
         Calculate GTO thresholds based on bet size relative to pot.
         For pot limit (B=P), bet_size_ratio = 1.0
-        
-        Returns: (a, b, c, d, e, f) where:
-        - a: P1 bluff threshold (bet with hands < a)
-        - b: P1 check-call threshold (call with hands >= b within check range)
-        - c: P1 value threshold (bet with hands >= c)
-        - d: P2 call threshold when facing bet
-        - e: P2 bluff threshold when facing check
-        - f: P2 value threshold when facing check
         """
-        # B is the bet size, P is the pot (normalized to P=2)
-        B = 2.0 * bet_size_ratio  # Normalized bet size
-        P = 2.0  # Normalized pot size
+        B = 2.0 * bet_size_ratio
+        P = 2.0
         
-        # P1 thresholds from von Neumann alternating game
-        a = B / ((B + 1) * (B + 4))  # Bluff threshold ~0.111 for B=2
-        c = (B * (B + 3)) / ((B + 1) * (B + 4))  # Value threshold ~0.556 for B=2
+        # P1 thresholds - optimized bluffing (2x GTO)
+        a = B / ((B + 1) * (B + 4)) * 2.0  # Bluff threshold ~0.22 (2x GTO)
+        c = (B * (B + 3)) / ((B + 1) * (B + 4))  # Value threshold ~0.556
         
-        # Check range is [a, c]. We defend MDF = P/(P+B) of our check range
+        # Check-call range
         check_range = c - a
-        mdf = P / (P + B)  # Minimum Defense Frequency
+        mdf = P / (P + B)
         call_range = check_range * mdf
-        b = c - call_range  # Call with hands from b to c
+        b = c - call_range
         
-        # P2 thresholds
-        # When facing bet: call threshold based on MDF
-        d = B / (P + B)  # For B=2, P=2: d = 0.5
-        
-        # When facing check: P2 betting thresholds
-        e = 1.0 / (B + 4)  # Bluff threshold (~0.167 for B=2)
-        f = (B + 2) / (B + 4)  # Value threshold (~0.667 for B=2)
+        # P2 thresholds - increased BB bluffing
+        d = B / (P + B)  # Call threshold ~0.5
+        e = 1.0 / (B + 4) * 1.5  # Bluff threshold ~0.25 (increased 50%)
+        f = (B + 2) / (B + 4)  # Value threshold ~0.667
         
         return (a, b, c, d, e, f)
     
@@ -151,16 +139,10 @@ class PokerPlayer:
         """
         Calculate a pot-sized bet that is a valid multiple of minbet.
         Returns the total amount to put in pot (new betPot level).
-        
-        In this game, pot-sized means raising by the current pot.
-        If current betPot = P, new betPot = 2*P.
         """
         target_bet = current_pot * 2
-        
-        # Round down to nearest valid multiple of minbet (to avoid warnings)
         bet = int(target_bet / minbet) * minbet
-        
-        return max(bet, current_pot + minbet)  # At least a min-raise
+        return max(bet, current_pot + minbet)
     
     def _round_to_minbet(self, amount, minbet):
         """Round amount down to nearest valid multiple of minbet."""
@@ -228,20 +210,15 @@ class PokerPlayer:
     
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
-        Step 5.2/5.3: Apply ONLY mathematically sound exploits.
-        - AllIn: Detected early (30 hands), counter with call >0.5
-        - Passive: Detected late (100+ hands), counter with 20% more bluffs
+        Minimal exploitation: Only detect AllIn players.
+        Pure GTO otherwise - exploitation was hurting overall performance.
         """
-        if self.opp_type == 'allin':
-            # Counter all-in: call with hands > 0.5 (beat random card)
-            # Never bluff (they never fold)
-            return (0, 0.5, 1.0, 0.5, 0, 1.0)
-        
-        elif self.opp_type == 'passive':
-            # Counter passive: bluff 20% more, but keep other thresholds
-            new_a = min(a * 1.2, 0.15)  # Modest bluff increase
-            new_e = min(e * 1.2, 0.20)  # Modest bluff increase
-            return (new_a, b, c, d, new_e, f)
+        # Check for AllIn players (only exploitation that consistently helps)
+        if self.opp_bet_count >= 5:
+            allin_freq = self.opp_allin_count / self.opp_bet_count
+            if allin_freq > 0.70:
+                # Counter all-in: call with hands > 0.5, never bluff
+                return (0, 0.5, 1.0, 0.5, 0, 1.0)
         
         # Default: pure GTO
         return (a, b, c, d, e, f)
