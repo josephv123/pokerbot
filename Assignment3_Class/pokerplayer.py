@@ -54,6 +54,21 @@ class PokerPlayer:
         self.conservative_mode = False  # When leading significantly
         self.aggressive_mode = False    # When trailing or near endgame
         
+        # Phase A: Track opponent response to OUR bets specifically
+        self.our_bet_count = 0       # Times we bet/raised
+        self.our_bet_gets_fold = 0   # Times opponent folded to our bet
+        self.our_bet_gets_call = 0   # Times opponent called our bet
+        self.our_bet_gets_raise = 0  # Times opponent raised our bet
+        
+        # Phase A.2: Bluff profitability tracking
+        self.bluff_attempts = 0      # Times we bluffed (bet with weak hand)
+        self.bluff_profits = 0       # Total profit from bluffs
+        
+        # Phase B: Showdown range estimation
+        self.opp_bet_showdown_cards = []   # Cards when opp bet and reached showdown
+        self.opp_call_showdown_cards = []  # Cards when opp called and reached showdown
+        self.opp_check_showdown_cards = [] # Cards when opp checked and reached showdown
+        
     def start(self, bigblind, card, myscore, oppscore, minbet, pot):
         """
         Start a game of poker.
@@ -89,6 +104,10 @@ class PokerPlayer:
         self.opp_raised_this_hand = False
         self.we_bet_this_hand = False
         
+        # Phase A: Track our bet details this hand
+        self.our_bet_was_bluff = False  # True if we bet with card < 0.35
+        self.our_bet_amount = 0         # How much we bet
+        
         # Step 6.3: Update variance management mode based on scores
         self._update_variance_mode(myscore, oppscore)
         
@@ -118,28 +137,36 @@ class PokerPlayer:
         B = 2.0 * bet_size_ratio
         P = 2.0
         
-        # P1 thresholds - optimized bluffing (2x GTO)
-        a = B / ((B + 1) * (B + 4)) * 2.0  # Bluff threshold ~0.22 (2x GTO)
-        c = (B * (B + 3)) / ((B + 1) * (B + 4))  # Value threshold ~0.556
+        # Tunable multipliers - OPTIMAL CONFIG
+        SB_BLUFF_MULT = 2.5  # Optimal: 2.5x
+        BB_BLUFF_MULT = 2.5  # Optimal: 2.5x
+        VALUE_MULT = 1.10   # Optimal: tighter value range
+        CALL_MULT = 1.15    # Optimal
+        
+        # P1 thresholds
+        a = B / ((B + 1) * (B + 4)) * SB_BLUFF_MULT  # Bluff threshold
+        c = (B * (B + 3)) / ((B + 1) * (B + 4)) * VALUE_MULT  # Value threshold
         
         # Check-call range
         check_range = c - a
         mdf = P / (P + B)
         call_range = check_range * mdf
-        b = c - call_range
+        b = (c - call_range) * CALL_MULT  # Adjusted call threshold
         
-        # P2 thresholds - increased BB bluffing
-        d = B / (P + B)  # Call threshold ~0.5
-        e = 1.0 / (B + 4) * 1.5  # Bluff threshold ~0.25 (increased 50%)
-        f = (B + 2) / (B + 4)  # Value threshold ~0.667
+        # P2 thresholds
+        d = B / (P + B) * CALL_MULT  # Call threshold, adjusted
+        e = 1.0 / (B + 4) * BB_BLUFF_MULT  # Bluff threshold
+        f = (B + 2) / (B + 4) * VALUE_MULT  # Value threshold
         
         return (a, b, c, d, e, f)
     
     def _get_pot_sized_bet(self, current_pot, minbet):
         """
-        Calculate a pot-sized bet that is a valid multiple of minbet.
+        Calculate bet that is a valid multiple of minbet.
+        Using 4x pot overbet - optimal for this opponent pool.
         """
-        target_bet = current_pot * 2
+        # 4x pot overbet: bet = 4 * pot, total = 5 * pot
+        target_bet = current_pot * 5
         bet = int(target_bet / minbet) * minbet
         return max(bet, current_pot + minbet)
     
@@ -209,12 +236,15 @@ class PokerPlayer:
     
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
-        Minimal exploitation: Only detect AllIn players.
+        Minimal exploitation: Only AllIn detection.
+        All exploitation attempts hurt overall performance.
         """
+        # AllIn detection only
         if self.opp_bet_count >= 5:
             allin_freq = self.opp_allin_count / self.opp_bet_count
             if allin_freq > 0.70:
                 return (0, 0.5, 1.0, 0.5, 0, 1.0)
+        
         return (a, b, c, d, e, f)
     
     def _apply_ev_tuning(self, a, b, c, d, e, f):
@@ -278,6 +308,8 @@ class PokerPlayer:
                 self.last_action = 'bet'
                 self.my_contribution = bet
                 self.we_bet_this_hand = True
+                self.our_bet_was_bluff = True  # Phase A: Mark as bluff
+                self.our_bet_amount = bet
                 return bet
             elif self.hand_strength >= c:
                 # Value bet: raise with pot-sized bet
@@ -288,6 +320,8 @@ class PokerPlayer:
                 self.last_action = 'bet'
                 self.my_contribution = bet
                 self.we_bet_this_hand = True
+                self.our_bet_was_bluff = False  # Phase A: Not a bluff
+                self.our_bet_amount = bet
                 return bet
             else:
                 # Check (call): match the big blind
@@ -333,6 +367,8 @@ class PokerPlayer:
                 self.last_action = 'bet'
                 self.my_contribution = bet
                 self.we_bet_this_hand = True
+                self.our_bet_was_bluff = True  # Phase A: Mark as bluff
+                self.our_bet_amount = bet
                 return bet
             elif self.hand_strength >= f:
                 # Value bet: bet
@@ -343,6 +379,8 @@ class PokerPlayer:
                 self.last_action = 'bet'
                 self.my_contribution = bet
                 self.we_bet_this_hand = True
+                self.our_bet_was_bluff = False  # Phase A: Not a bluff
+                self.our_bet_amount = bet
                 return bet
             else:
                 # Check back: end the hand
@@ -395,6 +433,15 @@ class PokerPlayer:
                 # Opponent folded
                 self.opp_fold_count += 1
                 self.consecutive_folds += 1
+                
+                # Phase A: Track response to our bet
+                if self.we_bet_this_hand:
+                    self.our_bet_count += 1
+                    self.our_bet_gets_fold += 1
+                    # Track bluff profitability
+                    if self.our_bet_was_bluff:
+                        self.bluff_attempts += 1
+                        self.bluff_profits += winnings
             else:
                 # We folded - opponent bet/raised
                 self.consecutive_folds = 0
@@ -407,9 +454,23 @@ class PokerPlayer:
             # Track opponent's action
             if self.opp_bet_this_hand or self.opp_raised_this_hand:
                 self.opp_bet_count += 1
+                # Phase A: They raised our bet
+                if self.we_bet_this_hand:
+                    self.our_bet_count += 1
+                    self.our_bet_gets_raise += 1
             elif self.we_bet_this_hand:
                 # They called our bet
                 self.opp_call_count += 1
+                # Phase A: Track response to our bet
+                self.our_bet_count += 1
+                self.our_bet_gets_call += 1
+                # Track bluff profitability (we lost at showdown with bluff)
+                if self.our_bet_was_bluff:
+                    self.bluff_attempts += 1
+                    if iwon:
+                        self.bluff_profits += winnings
+                    else:
+                        self.bluff_profits -= winnings
             else:
                 # Both checked
                 self.opp_check_count += 1
@@ -417,7 +478,17 @@ class PokerPlayer:
             # Phase 3: Bayesian updates based on opponent's revealed card
             self._update_bayesian_model(oppcard)
             
-            # Store showdown data
+            # Phase B: Track showdown cards by action type
+            if self.opp_bet_this_hand or self.opp_raised_this_hand:
+                self.opp_bet_showdown_cards.append(oppcard)
+            elif self.we_bet_this_hand:
+                # They called our bet
+                self.opp_call_showdown_cards.append(oppcard)
+            else:
+                # Both checked
+                self.opp_check_showdown_cards.append(oppcard)
+            
+            # Store showdown data (legacy)
             action = 'bet' if (self.opp_bet_this_hand or self.opp_raised_this_hand) else 'passive'
             self.opp_showdown_hands.append((oppcard, action, winnings))
         

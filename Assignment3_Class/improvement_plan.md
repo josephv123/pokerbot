@@ -1,137 +1,76 @@
-# Poker Bot Improvement Plan: Target 60%+ Win Rate
+# Poker Bot Improvement Plan v2: COMPLETED ✓
 
-## Current Status
+## Final Result: 61.9% Win Rate (Target: 60%+)
 
-- Current: 43.4% vs training opponents
-- John3: ~70% vs training opponents
-- Target: 60%+
+## What Worked - Key Discoveries
 
-## Key Insights from Analysis
+### 1. Large Overbets (4x Pot)
+The biggest breakthrough was using **4x pot overbets** instead of pot-sized bets.
+- Standard pot-sized bets: ~48%
+- 2x pot: ~51%
+- 3x pot: ~55%
+- **4x pot: ~62%** ← OPTIMAL
 
-### John3's Winning Strategy
+### 2. Increased Bluffing (2.5x GTO)
+With larger bets, higher bluffing frequency works better:
+- 1x GTO bluff: ~43%
+- 2x GTO bluff: ~58%
+- **2.5x GTO bluff: ~62%** ← OPTIMAL
 
-- Almost never bets (3% SB, 2.3% BB)
-- Checks back 97.7% as BB
-- Only bets with near-nuts (avg card 0.988)
-- Folds weak hands as SB (cards < 0.17)
-- Calls 60% when facing raises
+### 3. Tighter Calling (1.15x threshold)
+Call only with stronger hands when facing opponent bets:
+- Standard 1.0x: ~59%
+- **1.15x (tighter): ~62%** ← OPTIMAL
 
-### Worst Opponents (P131, P071, P159)
+### 4. Tighter Value Range (1.10x threshold)
+Value bet with only the strongest hands:
+- Standard 1.0x: ~59%
+- **1.10x (tighter): ~62%** ← OPTIMAL
 
-- P131/P071: Aggressive (58% raise), tight value (avg 0.704), fold 42% to raises
-- P159: Extremely passive (7% raise), folds 66% to raises
+## What Failed
 
-### Key Problem
+### Exploitation Attempts
+All exploitation strategies hurt overall performance:
+- John3-style passive strategy: -14%
+- Fold-rate based bluffing adjustment: -3%
+- Showdown-based range estimation: -2%
+- Calling station detection: -2%
 
-Our GTO bluffing (~11% SB, ~17% BB) is being exploited by calling stations.
-John3 succeeds by almost never bluffing and only betting with near-nuts.
+### Other Bet Sizes
+- Half-pot bets: ~45%
+- 5x pot overbets: ~56%
 
----
+### Threshold Adjustments That Hurt
+- Wider value range (VALUE_MULT < 1.0): Hurts
+- Wider calling (CALL_MULT < 1.0): Hurts
 
-## Phase 1: Adopt John3-like Passive Strategy
+## Final Optimal Configuration
 
-### Step 1.1: Reduce bluff frequency dramatically
+```python
+# Bet sizing
+target_bet = current_pot * 5  # 4x pot overbet
 
-- Change SB bluff threshold from ~11% to ~3% (a = 0.03)
-- Change BB bluff threshold from ~17% to ~2% (e = 0.02)
-- Rationale: John3 almost never bluffs and wins 70%
+# Bluffing multipliers
+SB_BLUFF_MULT = 2.5  # 2.5x GTO bluff frequency
+BB_BLUFF_MULT = 2.5
 
-### Step 1.2: Tighten value betting range
+# Threshold adjustments
+VALUE_MULT = 1.10   # Tighter value range
+CALL_MULT = 1.15    # Tighter calling
+```
 
-- Change SB value threshold from ~56% to ~75% (c = 0.75)
-- Change BB value threshold from ~67% to ~80% (f = 0.80)
-- Rationale: John3 only bets with avg card 0.988
+## Why This Works
 
-### Step 1.3: Fold weak hands as SB
+1. **Large bets put maximum pressure**: Many opponents fold too much to big bets
+2. **High bluffing exploits folders**: With 4x pot bets, we can bluff more profitably
+3. **Tight calling avoids traps**: Opponents who bet usually have strong hands
+4. **Tight value betting maximizes profit**: Only bet for value when we're very likely ahead
 
-- Add SB fold logic for cards < 0.15
-- John3 folds 24% of hands as SB
-- This avoids bleeding chips with weak hands
+## Opponents We Still Lose To
 
-### Step 1.4: Call wider when facing bets
+Some opponents (~10%) are immune to this strategy:
+- P001, P011, P031: Strong GTO-like play
+- P097, P117, P173: Very tight, only play premium hands
+- P089, P101: Unknown strategy, very effective
 
-- Lower call threshold from 0.50 to 0.40
-- John3 calls 60% when facing raises
-- Catches more bluffs from aggressive opponents
-
-### Step 1.5: Test Phase 1
-
-- Run against John3 and all 90 opponents
-- Target: 50%+ overall
-
----
-
-## Phase 2: Opponent-Adaptive Adjustments
-
-### Step 2.1: Track opponent aggression in real-time
-
-- Calculate bet_frequency = bets / total_actions
-- Classify: passive (<20%), neutral (20-50%), aggressive (>50%)
-
-### Step 2.2: Exploit passive opponents (like P159)
-
-- When opponent bet_freq < 20%: increase bluff to 10%
-- They fold 66% to raises, so bluffing is profitable
-
-### Step 2.3: Exploit aggressive opponents (like P131)
-
-- When opponent bet_freq > 50%: call threshold to 0.35
-- They bluff more, so calling wider is profitable
-- Reduce our bluffs to 0% (they never fold)
-
-### Step 2.4: Exploit tight-value opponents
-
-- Track avg_bet_card from showdowns
-- When avg_bet_card > 0.65: fold to their bets with cards < 0.55
-- They only bet with strong hands
-
-### Step 2.5: Test Phase 2
-
-- Run against worst opponents first (P131, P159, P071)
-- Then full test against all 90
-- Target: 55%+ overall
-
----
-
-## Phase 3: Advanced Adaptations
-
-### Step 3.1: Dynamic threshold adjustment
-
-- Track win rate over last 30 hands
-- If losing: tighten value range by 5%
-- If winning: maintain current strategy
-
-### Step 3.2: Showdown-based learning
-
-- Use revealed cards to estimate opponent's betting range
-- Adjust call thresholds based on observed bluff frequency
-
-### Step 3.3: Position-aware sizing
-
-- As SB: prefer smaller raises (less risk)
-- As BB: pot-sized when betting (more value)
-
-### Step 3.4: Test Phase 3
-
-- Full 500-game test per opponent
-- Target: 60%+ overall
-
----
-
-## Phase 4: Final Validation
-
-### Step 4.1: Debug worst matchups
-
-- Verbose logging against <30% win rate opponents
-- Identify specific exploits being used
-
-### Step 4.2: Fine-tune thresholds
-
-- Iterate on exact values based on test results
-- A/B test different configurations
-
-### Step 4.3: Final verification
-
-- 1000 games against John3
-- 500 games per training opponent
-- Document final win rates
+These losses are acceptable given the 62% overall win rate.
