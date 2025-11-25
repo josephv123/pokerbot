@@ -1,4 +1,5 @@
 import random
+from collections import deque
 
 class PokerPlayer:
     def __init__(self):
@@ -41,7 +42,7 @@ class PokerPlayer:
         self.aggressor_raise_threshold = 0.30  # >30% raise rate = aggressor
         
         # Adaptation detection
-        self.recent_fold_decisions = []  # Last 40: 1=fold, 0=not fold
+        self.recent_fold_decisions = deque(maxlen=40)  # Last 40: 1=fold, 0=not fold
         self.early_fold_rate = None      # Stored after first 30 hands
         self.adaptation_window = 20
         self.drift_threshold = 0.20  # Threshold for detecting behavioral shift
@@ -59,6 +60,11 @@ class PokerPlayer:
         self.our_bet_gets_fold = 0   # Times opponent folded to our bet
         self.our_bet_gets_call = 0   # Times opponent called our bet
         self.our_bet_gets_raise = 0  # Times opponent raised our bet
+        
+        # Performance caching
+        self._cached_strategy_params = None
+        self._cached_strategy_mode = None
+        self._last_detection_count = 0
         
     def start(self, bigblind, card, myscore, oppscore, minbet, pot):
         """
@@ -141,43 +147,58 @@ class PokerPlayer:
         """
         Get strategy parameters based on detected opponent type.
         Returns dict with bet_mult, bluff_mult, value_mult, call_mult.
+        Uses caching to avoid redundant dict creation.
         """
+        # Return cached params if mode hasn't changed
+        if self._cached_strategy_params is not None and self._cached_strategy_mode == self.strategy_mode:
+            return self._cached_strategy_params
+        
         if self.strategy_mode == 'aggressive':
             # For folders: large bets, aggressive bluffing
-            return {'bet_mult': 5, 'bluff_mult': 2.5, 'value_mult': 1.10, 'call_mult': 1.15}
+            params = {'bet_mult': 5, 'bluff_mult': 2.5, 'value_mult': 1.10, 'call_mult': 1.15}
         elif self.strategy_mode == 'tight':
             # For callers: smaller bets, minimal bluffing, tighter value
-            return {'bet_mult': 2, 'bluff_mult': 0.3, 'value_mult': 1.0, 'call_mult': 1.0}
+            params = {'bet_mult': 2, 'bluff_mult': 0.3, 'value_mult': 1.0, 'call_mult': 1.0}
         elif self.strategy_mode == 'trapping':
             # For aggressors: pot-sized, let them bet, call wider
-            return {'bet_mult': 2, 'bluff_mult': 0.5, 'value_mult': 1.15, 'call_mult': 0.85}
+            params = {'bet_mult': 2, 'bluff_mult': 0.5, 'value_mult': 1.15, 'call_mult': 0.85}
         elif self.strategy_mode == 'trap_aggressive':
             # For aggressive folders: BET EVEN MORE AGGRESSIVELY
             # They fold to bets, but crush us when we check
             # Solution: minimize checking by widening betting ranges
             # High bluff_mult = bluff more (check less with weak)
             # High value_mult = value bet wider (check less with medium-strong)
-            return {'bet_mult': 5, 'bluff_mult': 3.5, 'value_mult': 1.25, 'call_mult': 0.90}
+            params = {'bet_mult': 5, 'bluff_mult': 3.5, 'value_mult': 1.25, 'call_mult': 0.90}
         elif self.strategy_mode == 'aggressive_caller':
             # For aggressive callers (P113-style): they call a lot but bet aggressively when checked to
             # Strategy: value bet thinner (they call wide), call MUCH wider (they bluff), don't bluff much
-            return {'bet_mult': 3, 'bluff_mult': 0.4, 'value_mult': 0.90, 'call_mult': 0.70}
+            params = {'bet_mult': 3, 'bluff_mult': 0.4, 'value_mult': 0.90, 'call_mult': 0.70}
         elif self.strategy_mode == 'hyper_aggressive':
             # For hyper-aggressive opponents who ALWAYS bet when checked to
             # Strategy: Don't check to them - bet wide to deny their aggression
             # Call VERY wide when they bet (they bet with anything)
-            return {'bet_mult': 3, 'bluff_mult': 1.8, 'value_mult': 1.05, 'call_mult': 0.65}
+            params = {'bet_mult': 3, 'bluff_mult': 1.8, 'value_mult': 1.05, 'call_mult': 0.65}
         else:  # balanced
             # Standard GTO-ish: pot-sized, normal bluffs
-            return {'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
+            params = {'bet_mult': 3, 'bluff_mult': 1.5, 'value_mult': 1.05, 'call_mult': 1.05}
+        
+        # Cache the result
+        self._cached_strategy_params = params
+        self._cached_strategy_mode = self.strategy_mode
+        return params
     
     def _update_strategy_mode(self):
         """Update strategy mode based on opponent detection."""
+        # Skip detection if bet count hasn't changed (optimization)
+        if self.our_bet_count == self._last_detection_count and self.opp_type is not None:
+            return
+        
         opp_type = self._detect_opponent_type()
         
         if opp_type is None:
             return  # Not enough data yet
         
+        self._last_detection_count = self.our_bet_count
         self.opp_type = opp_type
         
         # Check for adaptation - if opponent is changing, use balanced mode
@@ -209,7 +230,13 @@ class PokerPlayer:
         if len(self.recent_fold_decisions) < self.adaptation_window or self.early_fold_rate is None:
             return False
         
-        recent_rate = sum(self.recent_fold_decisions[-self.adaptation_window:]) / self.adaptation_window
+        # Sum last adaptation_window elements from deque (iterate from right)
+        recent_sum = 0
+        for i, val in enumerate(reversed(self.recent_fold_decisions)):
+            if i >= self.adaptation_window:
+                break
+            recent_sum += val
+        recent_rate = recent_sum / self.adaptation_window
         drift = abs(recent_rate - self.early_fold_rate)
         
         return drift > self.drift_threshold  # Significant behavioral shift detected
@@ -263,10 +290,6 @@ class PokerPlayer:
         bet = int(target_bet / minbet) * minbet
         return max(bet, current_pot + minbet)
     
-    def _round_to_minbet(self, amount, minbet):
-        """Round amount down to nearest valid multiple of minbet."""
-        return int(amount / minbet) * minbet
-    
     def _get_bet_size_ratio(self, pot):
         """
         Calculate correct B/P ratio for threshold calculation.
@@ -317,14 +340,10 @@ class PokerPlayer:
         
         max_bet = min(myscore, oppscore)
         
-        # Use epsilon comparison for floating point pot values
-        def pot_equals(p1, p2):
-            return abs(p1 - p2) < self.epsilon
-        
         if self.role == 'SB':
-            return self._bet_as_sb(pot, a, b, c, max_bet, minbet, pot_equals)
+            return self._bet_as_sb(pot, a, b, c, max_bet, minbet)
         else:
-            return self._bet_as_bb(pot, d, e, f, max_bet, minbet, pot_equals)
+            return self._bet_as_bb(pot, d, e, f, max_bet, minbet)
     
     def _apply_selective_exploitation(self, a, b, c, d, e, f):
         """
@@ -369,7 +388,7 @@ class PokerPlayer:
         
         return (a, b, c, d, e, f)
     
-    def _bet_as_sb(self, pot, a, b, c, max_bet, minbet, pot_equals):
+    def _bet_as_sb(self, pot, a, b, c, max_bet, minbet):
         """Handle betting logic when we are Small Blind (act first)."""
         if self.last_action is None:
             # Opening action: can call (2*minbet) or raise
@@ -377,7 +396,7 @@ class PokerPlayer:
                 # Bluff: raise with pot-sized bet
                 bet = self._get_pot_sized_bet(pot, minbet)
                 bet = min(bet, max_bet)
-                bet = self._round_to_minbet(bet, minbet)
+                bet = int(bet / minbet) * minbet  # Round to minbet
                 bet = max(bet, pot + minbet)
                 self.last_action = 'bet'
                 self.my_contribution = bet
@@ -387,7 +406,7 @@ class PokerPlayer:
                 # Value bet: raise with pot-sized bet
                 bet = self._get_pot_sized_bet(pot, minbet)
                 bet = min(bet, max_bet)
-                bet = self._round_to_minbet(bet, minbet)
+                bet = int(bet / minbet) * minbet  # Round to minbet
                 bet = max(bet, pot + minbet)
                 self.last_action = 'bet'
                 self.my_contribution = bet
@@ -427,15 +446,15 @@ class PokerPlayer:
                 else:
                     return 0  # Fold
                     
-    def _bet_as_bb(self, pot, d, e, f, max_bet, minbet, pot_equals):
+    def _bet_as_bb(self, pot, d, e, f, max_bet, minbet):
         """Handle betting logic when we are Big Blind (act second)."""
-        if pot_equals(pot, self.initial_bb_pot):
+        if abs(pot - self.initial_bb_pot) < self.epsilon:
             # SB called (checked), we can check back or bet
             if self.hand_strength < e:
                 # Bluff: bet
                 bet = self._get_pot_sized_bet(pot, minbet)
                 bet = min(bet, max_bet)
-                bet = self._round_to_minbet(bet, minbet)
+                bet = int(bet / minbet) * minbet  # Round to minbet
                 bet = max(bet, pot + minbet)
                 self.last_action = 'bet'
                 self.my_contribution = bet
@@ -445,7 +464,7 @@ class PokerPlayer:
                 # Value bet: bet
                 bet = self._get_pot_sized_bet(pot, minbet)
                 bet = min(bet, max_bet)
-                bet = self._round_to_minbet(bet, minbet)
+                bet = int(bet / minbet) * minbet  # Round to minbet
                 bet = max(bet, pot + minbet)
                 self.last_action = 'bet'
                 self.my_contribution = bet
@@ -498,8 +517,6 @@ class PokerPlayer:
                     self.our_bet_gets_fold += 1
                     # Track in rolling window for adaptation detection
                     self.recent_fold_decisions.append(1)
-                    if len(self.recent_fold_decisions) > self.adaptation_window * 2:
-                        self.recent_fold_decisions.pop(0)
             else:
                 # We folded - opponent bet/raised
                 self.consecutive_folds = 0
@@ -518,8 +535,6 @@ class PokerPlayer:
                     self.our_bet_gets_raise += 1
                     # Track in rolling window for adaptation detection
                     self.recent_fold_decisions.append(0)
-                    if len(self.recent_fold_decisions) > self.adaptation_window * 2:
-                        self.recent_fold_decisions.pop(0)
                 # Track showdown stats for opponent betting range
                 self.opp_bet_card_sum += oppcard
                 self.opp_bet_card_count += 1
@@ -530,8 +545,6 @@ class PokerPlayer:
                 self.our_bet_gets_call += 1
                 # Track in rolling window for adaptation detection
                 self.recent_fold_decisions.append(0)
-                if len(self.recent_fold_decisions) > self.adaptation_window * 2:
-                    self.recent_fold_decisions.pop(0)
             else:
                 # Both checked
                 self.opp_check_count += 1
